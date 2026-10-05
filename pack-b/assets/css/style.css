@@ -1,0 +1,7 @@
+/* ==========================================================================
+   Package B — Mykid Standard: "Cute + Professional" accents on top of core.css
+   ========================================================================== */
+.tier-standard .card,
+.tier-standard .stat-card { border: 1px solid rgba(47, 58, 86, .05); }
+.tier-standard .stat-card__value { letter-spacing: -.3px; }
+.tier-standard .tier-badge { background: linear-gradient(135deg, #7CCBFA, #3A9BDC); }

@@ -1,0 +1,17 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Dependencies / build output
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+
+# Runtime demo data (regenerated from mock data every day)
+pack-*/storage/demo-state.json
+
+# Local env
+.env
+.env.*
