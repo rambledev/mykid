@@ -12,6 +12,7 @@
   const CFG = window.MYKID || {};
   const DEBUG = Boolean(CFG.debug);
   const POLL_INTERVAL_MS = 8000;
+  const PICKUP_POLL_MS = 4000; // รับ-ส่ง pages check their own status faster
   const TOAST_DURATION_MS = 2600;
 
   /* ------------------------------------------------------------------------
@@ -64,18 +65,23 @@
   /* ------------------------------------------------------------------------
    * API + live refresh
    * --------------------------------------------------------------------- */
-  async function api(action, payload = {}, { quiet = false } = {}) {
-    if (!quiet) Log.start('api', { action, payload });
+  /** POST to the API. With `files`, sends multipart/form-data (fields + images[]); otherwise JSON. */
+  async function api(action, payload = {}, { quiet = false, files = null } = {}) {
+    if (!quiet) Log.start('api', { action, payload, files: files ? files.length : 0 });
     const request = { action, ...payload };
+    let body = JSON.stringify(request);
+    const headers = { 'X-CSRF-Token': CFG.csrf };
+    if (files) {
+      body = new FormData();
+      Object.entries(request).forEach(([k, v]) => body.append(k, typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)));
+      files.forEach((f) => body.append('images[]', f, f.name));
+    } else {
+      headers['Content-Type'] = 'application/json';
+    }
     let response;
     let data;
     try {
-      response = await fetch(CFG.apiUrl, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CFG.csrf },
-        body: JSON.stringify(request),
-      });
+      response = await fetch(CFG.apiUrl, { method: 'POST', credentials: 'same-origin', headers, body });
       data = await response.json();
     } catch (error) {
       Log.error('api', error, { action, payload });
@@ -111,10 +117,10 @@
     }
   }
 
-  async function runAction(el, action, payload, onSuccess) {
+  async function runAction(el, action, payload, onSuccess, files = null) {
     setBusy(el, true);
     try {
-      const data = await api(action, payload);
+      const data = await api(action, payload, { files });
       if (onSuccess) onSuccess(data);
       toast(data.message);
       await refreshLive();
@@ -190,11 +196,12 @@
     const values = record || defaults;
     form.elements.id.value = record ? record.id : '';
     Array.from(form.elements).forEach((el) => {
-      if (!el.name || el.name === 'id' || !(el.name in values)) return;
+      if (!el.name || el.name === 'id' || el.type === 'file' || !(el.name in values)) return;
       const value = values[el.name] === null ? '' : String(values[el.name]);
       if (el.type === 'radio') el.checked = el.value === value;
       else el.value = value;
     });
+    $$('[data-upload-preview]', form).forEach((box) => { box.innerHTML = ''; });
     $$('[data-secret-hint]', form).forEach((hint) => {
       hint.textContent = record && record.rtsp_configured ? '🔐 ตั้งค่าไว้แล้ว — เว้นว่างเพื่อใช้ค่าเดิม (ไม่แสดงค่าจริงเพื่อความปลอดภัย)' : 'ยังไม่ได้ตั้งค่า';
     });
@@ -206,10 +213,11 @@
     const table = form.dataset.formTable;
     const id = Number(form.elements.id.value || 0);
     const data = {};
-    new FormData(form).forEach((value, key) => { if (key !== 'id') data[key] = value; });
-    Log.start('submitForm', { table, id, data });
+    new FormData(form).forEach((value, key) => { if (key !== 'id' && !(value instanceof File)) data[key] = value; });
+    const imageInput = form.querySelector('[data-image-input]');
+    Log.start('submitForm', { table, id, data, images: imageInput ? imageInput.files.length : 0 });
 
-    const missing = Array.from(form.elements).find((el) => el.required && !String(el.value).trim());
+    const missing = Array.from(form.elements).find((el) => el.required && el.type !== 'file' && !String(el.value).trim());
     const errorEl = $('[data-form-error]', form);
     if (missing) {
       errorEl.textContent = 'กรุณากรอกข้อมูลที่จำเป็นให้ครบ';
@@ -218,7 +226,9 @@
       return;
     }
     errorEl.hidden = true;
-    const result = await runAction(form.querySelector('[type="submit"]'), 'save', { table, id, data }, () => closeSheet(form.closest('.sheet')));
+    const files = imageInput && imageInput.files.length ? await prepareImages(imageInput.files, errorEl) : null;
+    if (files === false) return;
+    const result = await runAction(form.querySelector('[type="submit"]'), 'save', { table, id, data }, () => closeSheet(form.closest('.sheet')), files);
     if (!result) {
       errorEl.textContent = 'ยังบันทึกไม่ได้ กรุณาตรวจสอบข้อมูลแล้วลองใหม่';
       errorEl.hidden = false;
@@ -398,7 +408,8 @@
       }
     });
     const auto = form.dataset.autofill && form.querySelector(`.demo-account-btn[data-phone="${form.dataset.autofill}"]`);
-    if (auto) fillAccount(auto); // arrived from the multi-school demo guide
+    if (auto) fillAccount(auto); // arrived from the role selection / demo guide
+    if (auto && 'autosubmit' in form.dataset) form.requestSubmit(); // role card → straight into the demo
     Log.end('initLogin');
   }
 
@@ -474,6 +485,80 @@
       }
     }, POLL_INTERVAL_MS);
   }
+
+  /* ------------------------------------------------------------------------
+   * รับ-ส่ง (pickup): parent notifies ETA, teacher moves the status, both pages poll
+   * the dedicated pickup_status API (no WebSocket, no location of any kind).
+   * --------------------------------------------------------------------- */
+  const Pickup = {
+    signature: null,
+    statuses: {},
+
+    remember(data) {
+      this.signature = data.signature;
+      this.statuses = Object.fromEntries(data.rows.map((r) => [r.id, r.status]));
+    },
+
+    /** Fetch status; refresh the page regions when something changed. `announce` = toast what changed. */
+    async sync(announce) {
+      const data = await api('pickup_status', {}, { quiet: true });
+      if (data.signature === this.signature) return;
+      const changed = data.rows.find((r) => this.statuses[r.id] !== r.status);
+      Log.info('Pickup.sync', 'changed', { before: this.signature, after: data.signature, changed });
+      this.remember(data);
+      await refreshLive();
+      if (announce && changed) toast(CFG.role === 'parent' ? `${changed.label} · ${changed.message}` : `${changed.label}`, 'info');
+    },
+
+    async init() {
+      const region = $('[data-pickup-live]');
+      if (!region) return;
+      Log.start('Pickup.init', { signature: region.dataset.pickupSignature });
+      try {
+        this.remember(await api('pickup_status', {}, { quiet: true }));
+      } catch (error) {
+        Log.error('Pickup.init', error, {});
+      }
+      setInterval(async () => {
+        if (document.hidden || $('.sheet.is-open')) return;
+        try { await this.sync(true); } catch (error) { Log.error('Pickup.poll', error, {}); }
+      }, PICKUP_POLL_MS);
+      Log.end('Pickup.init', { intervalMs: PICKUP_POLL_MS });
+    },
+
+    open(button) {
+      const sheet = openSheet('sheet-pickup');
+      if (!sheet) return;
+      const form = $('[data-pickup-form]', sheet);
+      form.reset();
+      form.elements.student_id.value = button.dataset.student;
+      $('.sheet__title', sheet).textContent = `แจ้งมารับ${button.dataset.name}`;
+      $('[data-form-error]', form).hidden = true;
+    },
+
+    async create(form) {
+      const eta = form.querySelector('input[name="eta_minutes"]:checked');
+      const error = $('[data-form-error]', form);
+      if (!eta) {
+        error.textContent = 'กรุณาเลือกเวลาที่จะถึงโรงเรียน';
+        error.hidden = false;
+        return;
+      }
+      const sheet = form.closest('.sheet');
+      const ok = await runAction($('[type="submit"]', form), 'pickup_create',
+        { student_id: Number(form.elements.student_id.value), eta_minutes: Number(eta.value) }, () => closeSheet(sheet));
+      if (ok) await this.sync(false);
+    },
+
+    async update(button) {
+      const { id, status, name } = button.dataset;
+      if (status === 'completed') {
+        const ok = await confirmDialog({ title: `ส่งมอบ${name}เรียบร้อย?`, message: 'ยืนยันว่าผู้ปกครองรับนักเรียนจากจุดรับแล้ว', icon: '🤝', okLabel: 'ส่งมอบเรียบร้อย' });
+        if (!ok) return;
+      }
+      if (await runAction(button, 'pickup_update', { id: Number(id), status })) await this.sync(false);
+    },
+  };
 
   /* ------------------------------------------------------------------------
    * CCTV player
@@ -703,6 +788,109 @@
   }
 
   /* ------------------------------------------------------------------------
+   * Images (portfolio / activity / food)
+   *
+   * Phones produce multi-MB photos, so images are downscaled in the browser first
+   * (longest side ≤ 1600px, JPEG) — the server validates and re-encodes again anyway.
+   * --------------------------------------------------------------------- */
+  const IMAGE_MAX_SIDE = 1600;
+  const IMAGE_MAX_FILES = 6;
+  const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+  async function resizeImage(file) {
+    try {
+      const bitmap = 'createImageBitmap' in window ? await createImageBitmap(file, { imageOrientation: 'from-image' }) : null;
+      if (!bitmap) return file;
+      const scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // transparent PNG → white background in JPEG
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+      return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+    } catch (error) {
+      Log.error('resizeImage', error, { name: file.name });
+      return file; // the server still validates and optimises
+    }
+  }
+
+  /** Validate type/count on the client (friendly messages), then downscale. false = invalid. */
+  async function prepareImages(fileList, errorEl) {
+    const files = Array.from(fileList);
+    const fail = (msg) => { if (errorEl) { errorEl.textContent = msg; errorEl.hidden = false; } else toast(msg, 'error'); return false; };
+    if (files.length > IMAGE_MAX_FILES) return fail(`เลือกได้ไม่เกิน ${IMAGE_MAX_FILES} รูปต่อครั้ง`);
+    if (files.some((f) => !IMAGE_TYPES.includes(f.type))) return fail('รองรับเฉพาะไฟล์รูปภาพ JPG, PNG หรือ WebP');
+    Log.start('prepareImages', { count: files.length, bytes: files.reduce((n, f) => n + f.size, 0) });
+    const out = await Promise.all(files.map(resizeImage));
+    Log.end('prepareImages', { bytes: out.reduce((n, f) => n + f.size, 0) });
+    return out;
+  }
+
+  function previewImages(input) {
+    const box = input.closest('form').querySelector('[data-upload-preview]');
+    if (!box) return;
+    box.querySelectorAll('img').forEach((img) => URL.revokeObjectURL(img.src));
+    box.innerHTML = '';
+    Array.from(input.files).slice(0, IMAGE_MAX_FILES).forEach((f) => {
+      if (!IMAGE_TYPES.includes(f.type)) return;
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      img.alt = f.name;
+      box.appendChild(img);
+    });
+    if (input.files.length) {
+      const note = document.createElement('small');
+      note.textContent = `เลือกแล้ว ${input.files.length} รูป`;
+      box.appendChild(note);
+    }
+  }
+
+  function openUpload(button) {
+    const sheet = openSheet('sheet-upload');
+    if (!sheet) return;
+    const form = $('[data-upload-form]', sheet);
+    form.reset();
+    form.elements.owner_type.value = button.dataset.ownerType;
+    form.elements.owner_id.value = button.dataset.ownerId;
+    $('[data-upload-title]', form).textContent = button.dataset.title || '';
+    $('[data-upload-preview]', form).innerHTML = '';
+    $('[data-form-error]', form).hidden = true;
+  }
+
+  async function submitUpload(form) {
+    const input = form.querySelector('[data-image-input]');
+    const errorEl = $('[data-form-error]', form);
+    if (!input.files.length) { errorEl.textContent = 'กรุณาเลือกรูปภาพอย่างน้อย 1 รูป'; errorEl.hidden = false; return; }
+    const files = await prepareImages(input.files, errorEl);
+    if (!files) return;
+    errorEl.hidden = true;
+    await runAction(form.querySelector('[type="submit"]'), 'upload_images',
+      { owner_type: form.elements.owner_type.value, owner_id: form.elements.owner_id.value }, () => closeSheet(form.closest('.sheet')), files);
+  }
+
+  function openMedia(button) {
+    const sheet = openSheet('sheet-media');
+    if (!sheet) return;
+    const img = $('[data-media-img]', sheet);
+    img.src = button.dataset.src;
+    img.alt = button.dataset.caption || '';
+    $('[data-media-caption]', sheet).textContent = button.dataset.caption || '';
+  }
+
+  async function cleanupMedia(button) {
+    const ok = await confirmDialog({
+      title: 'ล้างไฟล์ภาพที่หมดอายุ?',
+      message: `พบไฟล์ภาพที่หมดอายุ ${Number(button.dataset.files).toLocaleString()} ไฟล์ รวม ${button.dataset.size} ต้องการลบไฟล์เหล่านี้หรือไม่? (ข้อมูลรายการจะยังอยู่ครบ)`,
+      icon: '🗑️',
+      okLabel: 'ลบไฟล์',
+    });
+    if (ok) await runAction(button, 'cleanup_media', {});
+  }
+
+  /* ------------------------------------------------------------------------
    * Event wiring
    * --------------------------------------------------------------------- */
   const ACTIONS = {
@@ -719,6 +907,11 @@
     'fill-account': fillAccount,
     print: () => window.print(),
     'open-camera': (b) => { const s = openSheet('sheet-camera'); if (s) $('.sheet__title', s).textContent = b.dataset.name; },
+    'upload-open': openUpload,
+    'media-open': openMedia,
+    'cleanup-media': cleanupMedia,
+    'pickup-open': (b) => Pickup.open(b),
+    'pickup-update': (b) => Pickup.update(b),
     'cctv-open': openViewer,
     'cctv-close': closeViewer,
     'cctv-fullscreen': toggleFullscreen,
@@ -760,6 +953,7 @@
   });
 
   document.addEventListener('change', (event) => {
+    if (event.target.matches('[data-image-input]')) { previewImages(event.target); return; }
     const select = event.target.closest('[data-intake-id]');
     if (!select) return;
     runAction(select, 'save_intake', { id: Number(select.dataset.intakeId), meal: select.dataset.meal, level: select.value });
@@ -770,6 +964,8 @@
     if (form.matches('[data-form-table]')) { event.preventDefault(); submitForm(form); }
     else if (form.matches('[data-meal-form]')) { event.preventDefault(); saveMeal(form); }
     else if (form.matches('[data-chat-form]')) { event.preventDefault(); sendMessage(form); }
+    else if (form.matches('[data-upload-form]')) { event.preventDefault(); submitUpload(form); }
+    else if (form.matches('[data-pickup-form]')) { event.preventDefault(); Pickup.create(form); }
   });
 
   document.addEventListener('keydown', (event) => {
@@ -783,6 +979,7 @@
     initClocks();
     initChartTips();
     initPolling();
+    Pickup.init();
     $$('[data-filter-bar]').forEach((bar) => {
       if (bar.dataset.initialChip) filterState[bar.dataset.filterBar] = { q: '', chip: bar.dataset.initialChip };
       applyFilter(bar.dataset.filterBar);

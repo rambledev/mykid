@@ -23,3 +23,4 @@ docs
 
 # Runtime demo data (recreated automatically inside the container)
 **/storage/demo-state.json
+**/storage/uploads

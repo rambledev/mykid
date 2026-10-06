@@ -11,6 +11,9 @@ tab_bar('rooms', array_column(array_map(fn ($r) => ['k' => $r['id'], 'v' => $r['
     <?php foreach ($rooms as $i => $room): ?>
         <section data-tab-panel="rooms:<?= $room['id'] ?>"<?= $i ? ' hidden' : '' ?>>
             <?php render_food_cards(classroom_food($room['id']), $room['id']); ?>
+            <?php if (has_feature('media')): ?>
+                <div class="card"><?php render_food_photos(classroom_menu_row($room['id']), 'อาหารวันนี้ ห้อง' . $room['name']); ?></div>
+            <?php endif; ?>
         </section>
     <?php endforeach; ?>
 </div>

@@ -11,6 +11,8 @@
  *   student         bound to school_id + classroom_id + student_id (attendance, health, sleep, ...)
  *   targeted        school-wide, or narrowed to a classroom / student (notifications)
  *   camera          a CCTV camera — visibility decided by can_view_camera() (core/cctv.php)
+ *   media           an image file's metadata — student level when student_id is set (portfolio),
+ *                   otherwise classroom level (activity / food images)
  *
  * FIELDS drive the generic form sheets (components.php) and server validation (api).
  * Scope fields (school_id / classroom_id / student_id) are filled or checked by
@@ -110,7 +112,8 @@ function mk_tables(): array
             'student_id' => ['label' => 'นักเรียน', 'type' => 'student', 'required' => true],
             'title'      => ['label' => 'ชื่อผลงาน', 'type' => 'text', 'required' => true, 'max' => 80],
             'category'   => ['label' => 'หมวด', 'type' => 'select', 'options' => 'portfolioCategories'],
-            'comment'    => ['label' => 'ความเห็นครู', 'type' => 'textarea', 'max' => 200],
+            'comment'    => ['label' => 'รายละเอียด / หมายเหตุ', 'type' => 'textarea', 'max' => 200],
+            'images'     => ['label' => 'รูปผลงาน', 'type' => 'image'], // uploaded files, not a column
         ]],
         'photos' => ['label' => 'ภาพกิจกรรม', 'level' => 'classroom', 'fields' => [
             'classroom_id' => ['label' => 'ห้องเรียน', 'type' => 'classroom', 'required' => true],
@@ -133,13 +136,10 @@ function mk_tables(): array
             'body'         => ['label' => 'รายละเอียด', 'type' => 'textarea', 'max' => 240],
             'classroom_id' => ['label' => 'ส่งถึงห้อง (เว้นว่าง = ทั้งโรงเรียน)', 'type' => 'classroom'],
         ]],
-        'pickupRequests' => ['label' => 'ผู้มารับ', 'level' => 'student', 'fields' => [
-            'student_id' => ['label' => 'นักเรียน', 'type' => 'student', 'required' => true],
-            'person'     => ['label' => 'ชื่อผู้มารับ', 'type' => 'text', 'required' => true, 'max' => 60],
-            'relation'   => ['label' => 'ความสัมพันธ์', 'type' => 'select', 'options' => ['แม่' => 'แม่', 'พ่อ' => 'พ่อ', 'ปู่/ย่า' => 'ปู่/ย่า', 'ตา/ยาย' => 'ตา/ยาย', 'ญาติ' => 'ญาติ']],
-            'time'       => ['label' => 'เวลารับ', 'type' => 'time'],
-            'status'     => ['label' => 'สถานะ', 'type' => 'select', 'options' => 'pickupStatus'],
-        ]],
+        // รับ-ส่ง: written ONLY through the pickup_* API actions (core/pickup.php), never the generic form.
+        // Row: student scope + status, parent_id/parent_name, eta_minutes, requested_at, eta_at,
+        //      preparing_at, waiting_at, completed_at, completed_by, completed_by_name.
+        'pickups' => ['label' => 'รับ-ส่ง', 'level' => 'student', 'fields' => []],
         'cameras' => ['label' => 'กล้องวงจรปิด', 'level' => 'camera', 'fields' => [
             'school_id'     => ['label' => 'โรงเรียน', 'type' => 'school'], // super admin picks; others forced from session
             'name'          => ['label' => 'ชื่อกล้อง', 'type' => 'text', 'required' => true, 'max' => 60, 'placeholder' => 'เช่น กล้องหน้าห้องอนุบาล 1'],
@@ -156,6 +156,7 @@ function mk_tables(): array
             'allow_parent'  => ['label' => 'ผู้ปกครองดูได้', 'type' => 'select', 'options' => ['1' => 'ได้', '0' => 'ไม่ได้']],
         ]],
         'cameraPermissions' => ['label' => 'สิทธิ์ดูกล้อง', 'level' => 'school', 'fields' => []],
+        'mediaFiles' => ['label' => 'รูปภาพ', 'level' => 'media', 'fields' => []], // written by core/media.php only
         'settings' => ['label' => 'การตั้งค่าโรงเรียน', 'level' => 'school', 'fields' => [
             'phone'     => ['label' => 'เบอร์โทรโรงเรียน', 'type' => 'text', 'max' => 20],
             'address'   => ['label' => 'ที่อยู่', 'type' => 'textarea', 'max' => 200],

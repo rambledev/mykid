@@ -10,5 +10,14 @@ page_title('🍽️', 'อาหารวันนี้', 'เมนูที�
 ?>
 <section data-live id="live-food">
     <?php render_food_cards(classroom_food($child['classroom_id']), null, has_feature('foodIntake') ? student_today('foodIntake', $child['id']) : null); ?>
+    <?php if (has_feature('media')): ?>
+        <div class="card"><?php render_food_photos(classroom_menu_row($child['classroom_id']), 'อาหารวันนี้'); ?></div>
+    <?php endif; ?>
 </section>
+<?php if (has_feature('media')): ?>
+    <section class="card">
+        <?php section_head('🗓️', 'เมนูย้อนหลัง'); ?>
+        <?php render_food_history(classroom_food_history($child['classroom_id'])); ?>
+    </section>
+<?php endif; ?>
 <?php mk_footer(); ?>

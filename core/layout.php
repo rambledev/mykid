@@ -147,6 +147,9 @@ function mk_footer(): void
         if (has_feature('cctv')) {
             render_cctv_viewer();
         }
+        if (has_feature('media')) {
+            render_media_sheets();
+        }
     }
     ?>
 <div class="chart-tip" data-chart-tip role="tooltip" hidden></div>

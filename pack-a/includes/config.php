@@ -16,7 +16,7 @@ return $catalogue['a'] + [
     'modules'     => [
         'students', 'teachers', 'classrooms', 'activities', 'food', 'status', 'reports', 'attendanceReport',
         'multiSchool', 'attendance', 'health', 'sleep', 'foodIntake', 'portfolio', 'photos', 'stars',
-        'development', 'calendar', 'chat', 'notifications', 'pickup', 'cctv', 'settings', 'timeline',
+        'development', 'calendar', 'chat', 'notifications', 'pickup', 'cctv', 'settings', 'timeline', 'media',
     ],
 
     // Navigation per role: [key, label, page, icon, show in mobile bottom nav]
@@ -40,7 +40,9 @@ return $catalogue['a'] + [
             ['calendar', 'ปฏิทิน', 'admin/calendar.php', 'calendar', false],
             ['attendance', 'การมาเรียน', 'admin/attendance.php', 'check', true],
             ['health', 'สุขภาพ', 'admin/health.php', 'heart', false],
+            ['stars', 'ดาวสะสม', 'admin/stars.php', 'star', false],
             ['cctv', 'กล้องวงจรปิด', 'admin/cctv.php', 'camera', false],
+            ['storage', 'จัดการพื้นที่จัดเก็บ', 'admin/storage.php', 'image', false],
             ['settings', 'ตั้งค่าโรงเรียน', 'admin/settings.php', 'settings', false],
             ['account', 'บัญชี', 'admin/account.php', 'user', false],
         ],
@@ -55,6 +57,7 @@ return $catalogue['a'] + [
             ['home', 'หน้าหลัก', 'teacher/index.php', 'home', true],
             ['status', 'สถานะ', 'teacher/status.php', 'status', true],
             ['attendance', 'เช็คชื่อ', 'teacher/attendance.php', 'check', true],
+            ['pickup', 'รับ-ส่ง', 'teacher/pickup.php', 'car', true],
             ['chat', 'แชท', 'teacher/chat.php', 'chat', true],
             ['activities', 'กิจกรรม', 'teacher/activities.php', 'list', false],
             ['food', 'อาหาร', 'teacher/food.php', 'food', false],
@@ -69,6 +72,7 @@ return $catalogue['a'] + [
         'parent' => [
             ['home', 'หน้าหลัก', 'parent/index.php', 'home', true],
             ['timeline', 'ไทม์ไลน์', 'parent/timeline.php', 'clock', true],
+            ['pickup', 'รับ-ส่ง', 'parent/pickup.php', 'car', true],
             ['chat', 'แชท', 'parent/chat.php', 'chat', true],
             ['notifications', 'แจ้งเตือน', 'parent/notifications.php', 'bell', true],
             ['food', 'อาหาร', 'parent/food.php', 'food', false],
@@ -79,7 +83,6 @@ return $catalogue['a'] + [
             ['stars', 'ดาวสะสม', 'parent/stars.php', 'star', false],
             ['development', 'พัฒนาการ', 'parent/development.php', 'sprout', false],
             ['calendar', 'ปฏิทินโรงเรียน', 'parent/calendar.php', 'calendar', false],
-            ['pickup', 'ผู้มารับ', 'parent/pickup.php', 'car', false],
             ['cctv', 'กล้อง', 'parent/cctv.php', 'camera', false],
             ['child', 'โปรไฟล์ลูก', 'parent/child.php', 'child', false],
             ['account', 'บัญชี', 'parent/account.php', 'user', false],

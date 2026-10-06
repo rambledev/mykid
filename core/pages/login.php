@@ -57,7 +57,7 @@ mk_header(['id' => 'login', 'title' => 'เข้าสู่ระบบ', 'lay
 </style>
 
 <div class="auth">
-    <a class="topnav__back auth__back" href="index.php"><?= icon('back') ?> กลับ</a>
+    <a class="topnav__back auth__back" href="<?= e(pkg()['multiSchool'] ? root_url('index.php') : 'index.php') ?>"><?= icon('back') ?> กลับ</a>
     <div class="auth__art" aria-hidden="true">
         <span class="auth__sun"><?= decor_svg('sun') ?></span>
         <span class="auth__cloud"><?= decor_svg('cloud') ?></span>
@@ -67,7 +67,7 @@ mk_header(['id' => 'login', 'title' => 'เข้าสู่ระบบ', 'lay
     <h1 class="auth__title">เข้าสู่ <?= e(pkg()['name']) ?></h1>
     <p class="auth__sub"><?= e(pkg()['multiSchool'] ? 'Mykid Platform · ' . count(store_rows('schools')) . ' โรงเรียน' : store_rows('schools')[0]['name']) ?></p>
 
-    <form class="auth__card" method="post" action="login.php" data-login-form data-autofill="<?= e(normalize_phone((string) ($_GET['demo'] ?? ''))) ?>" novalidate>
+    <form class="auth__card" method="post" action="login.php" data-login-form data-autofill="<?= e(normalize_phone((string) ($_GET['demo'] ?? ''))) ?>"<?= ($_GET['go'] ?? '') === '1' ? ' data-autosubmit' : '' ?> novalidate>
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
         <fieldset class="role-picker">

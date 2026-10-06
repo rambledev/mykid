@@ -1,11 +1,8 @@
 <?php
 /**
- * Package A — mock data: 5 schools of different sizes, each fully isolated by school_id.
- *   1 โรงเรียนอนุบาลโพนสูง      3 ห้อง · 60 นักเรียน (from Package C's mock data)
- *   2 โรงเรียนอนุบาลสายรุ้ง      3 ห้อง · 60 นักเรียน
- *   3 โรงเรียนอนุบาลดวงดาว       3 ห้อง · 57 นักเรียน
- *   4 โรงเรียนอนุบาลบ้านดอกไม้   2 ห้อง · 24 นักเรียน (ทดลองใช้)
- *   5 โรงเรียนอนุบาลลูกโป่ง       4 ห้อง · 60 นักเรียน
+ * Package A (Demo Final scope) — mock data: 2 schools, each fully isolated by school_id.
+ *   1 ศูนย์พัฒนาเด็กเล็กบ้านโพนสูง 1   3 ห้อง · 60 นักเรียน · 5 ครู (from Package C's mock data, renamed here)
+ *   2 ศูนย์พัฒนาเด็กเล็กบ้านโพนสูง 2   3 ห้อง · 60 นักเรียน · 5 ครู
  */
 declare(strict_types=1);
 
@@ -13,26 +10,15 @@ function pkg_seed(): array
 {
     $schools = [
         seed_school_from_package_c(),
-        seed_generated_school(2, 'โรงเรียนอนุบาลสายรุ้ง', 'อนุบาลสายรุ้ง', '🌈',
+        seed_generated_school(2, 'ศูนย์พัฒนาเด็กเล็กบ้านโพนสูง 2', 'ศพด.บ้านโพนสูง 2', '🌈',
             [['อนุบาล 1', '🐼', '#DDF7E6', 20, 2], ['อนุบาล 2', '🐨', '#F1EAFF', 20, 2], ['อนุบาล 3', '🦊', '#FFEAF2', 20, 1]],
             [['ครูแพรว', 'นางสาวแพรวา ใจสะอาด'], ['ครูดารา', 'นางดารา พูนสุข'], ['ครูปิยะ', 'นางสาวปิยะดา ศรีทอง'],
              ['ครูจันทร์', 'นางจันทร์เพ็ญ วงศ์ดี'], ['ครูนภา', 'นางสาวนภา รัตนวงศ์']],
             ['classroom' => 4, 'student' => 61, 'teacher' => 6, 'activity' => 201], 0),
-        seed_generated_school(3, 'โรงเรียนอนุบาลดวงดาว', 'อนุบาลดวงดาว', '⭐',
-            [['อนุบาล 1', '🐧', '#DFF4FF', 19, 2], ['อนุบาล 2', '🐬', '#FFF4CC', 19, 1], ['อนุบาล 3', '🦄', '#F1EAFF', 19, 2]],
-            [['ครูกานต์', 'นางสาวกานต์ธิดา ศรีสุข'], ['ครูพิม', 'นางพิมพ์ใจ แสงทอง'], ['ครูสายใจ', 'นางสายใจ บุญมี'],
-             ['ครูอร', 'นางสาวอรอุมา จันทร์ดี'], ['ครูมุก', 'นางสาวมุกดา คำแก้ว']],
-            ['classroom' => 7, 'student' => 121, 'teacher' => 11, 'activity' => 301], 30),
-        seed_generated_school(4, 'โรงเรียนอนุบาลบ้านดอกไม้', 'อนุบาลบ้านดอกไม้', '🌻',
-            [['อนุบาล 1', '🐝', '#FFF4CC', 12, 1], ['อนุบาล 2', '🦋', '#DDF7E6', 12, 1]],
-            [['ครูดอกรัก', 'นางสาวดอกรัก ทองใบ'], ['ครูเพ็ญ', 'นางเพ็ญศรี ใจกว้าง']],
-            ['classroom' => 10, 'student' => 178, 'teacher' => 16, 'activity' => 401], 60, 'trial'),
-        seed_generated_school(5, 'โรงเรียนอนุบาลลูกโป่ง', 'อนุบาลลูกโป่ง', '🎈',
-            [['เตรียมอนุบาล', '🐤', '#FFEAF2', 15, 1], ['อนุบาล 1', '🐻', '#DFF4FF', 15, 2], ['อนุบาล 2', '🐳', '#F1EAFF', 15, 1], ['อนุบาล 3', '🦒', '#FFF4CC', 15, 2]],
-            [['ครูอ้อม', 'นางอัมพร สุขสม'], ['ครูนก', 'นางสาวนกน้อย แก้วกล้า'], ['ครูจอย', 'นางสาวจอยรักษ์ มีสุข'],
-             ['ครูแอน', 'นางแอนนา ศรีบุญ'], ['ครูหญิง', 'นางสาวหญิงไทย ดวงแก้ว'], ['ครูต่าย', 'นางต่ายทอง บุญเพ็ง']],
-            ['classroom' => 12, 'student' => 202, 'teacher' => 18, 'activity' => 501], 72),
     ];
+
+    // Package A's school 1 has its own name (Package C keeps its original one).
+    $schools[0]['school'] = ['name' => 'ศูนย์พัฒนาเด็กเล็กบ้านโพนสูง 1', 'shortName' => 'ศพด.บ้านโพนสูง 1'] + $schools[0]['school'];
 
     $id = 1;
     $staff = function (string $name, string $phone, string $role, ?int $school) use (&$id) {
@@ -61,52 +47,24 @@ function pkg_seed(): array
 
     $users = [
         $staff('ผู้ดูแลระบบ Mykid', '0900000001', 'super_admin', null),
-        // School 1 — โพนสูง
-        $staff('คุณแอดมินโพนสูง', '0900000002', 'admin', 1),
-        $staff('ผู้อำนวยการโพนสูง', '0900000003', 'executive', 1),
+        // School 1 — บ้านโพนสูง 1
+        $staff('คุณแอดมินโพนสูง 1', '0900000002', 'admin', 1),
+        $staff('ผู้อำนวยการโพนสูง 1', '0900000003', 'executive', 1),
     ];
     $id = 10;
-    array_push($users, ...seed_users_from_package_c($id));
+    array_push($users, ...seed_users_from_package_c($id)); // 3 teachers + 6 parents (Package C accounts)
 
-    // School 2 — สายรุ้ง
+    // School 2 — บ้านโพนสูง 2
     $id = 30;
-    $users[] = $staff('คุณแอดมินสายรุ้ง', '0920000002', 'admin', 2);
-    $users[] = $staff('ผู้อำนวยการสายรุ้ง', '0920000003', 'executive', 2);
+    $users[] = $staff('คุณแอดมินโพนสูง 2', '0920000002', 'admin', 2);
+    $users[] = $staff('ผู้อำนวยการโพนสูง 2', '0920000003', 'executive', 2);
     $users[] = $teacher($schools[1], 6, '0920000011');
     $users[] = $teacher($schools[1], 8, '0920000012');
     $users[] = $teacher($schools[1], 10, '0920000013');
     $users[] = $parent($schools[1], 61, '0920000021');
     $users[] = $parent($schools[1], 81, '0920000022');
-
-    // School 3 — ดวงดาว
-    $id = 50;
-    $users[] = $staff('คุณแอดมินดวงดาว', '0930000002', 'admin', 3);
-    $users[] = $staff('ผู้อำนวยการดวงดาว', '0930000003', 'executive', 3);
-    $users[] = $teacher($schools[2], 11, '0930000011');
-    $users[] = $teacher($schools[2], 13, '0930000012');
-    $users[] = $teacher($schools[2], 14, '0930000013');
-    $users[] = $parent($schools[2], 121, '0930000021');
-    $users[] = $parent($schools[2], 140, '0930000022');
-
-    // School 4 — บ้านดอกไม้ (trial)
-    $id = 70;
-    $users[] = $staff('คุณแอดมินบ้านดอกไม้', '0940000002', 'admin', 4);
-    $users[] = $staff('ผู้อำนวยการบ้านดอกไม้', '0940000003', 'executive', 4);
-    $users[] = $teacher($schools[3], 16, '0940000011');
-    $users[] = $teacher($schools[3], 17, '0940000012');
-    $users[] = $parent($schools[3], 178, '0940000021');
-    $users[] = $parent($schools[3], 190, '0940000022');
-
-    // School 5 — ลูกโป่ง
-    $id = 90;
-    $users[] = $staff('คุณแอดมินลูกโป่ง', '0950000002', 'admin', 5);
-    $users[] = $staff('ผู้อำนวยการลูกโป่ง', '0950000003', 'executive', 5);
-    $users[] = $teacher($schools[4], 18, '0950000011');
-    $users[] = $teacher($schools[4], 19, '0950000012');
-    $users[] = $teacher($schools[4], 21, '0950000013');
-    $users[] = $teacher($schools[4], 22, '0950000014');
-    $users[] = $parent($schools[4], 202, '0950000021');
-    $users[] = $parent($schools[4], 217, '0950000022');
+    $users[] = $parent($schools[1], 101, '0920000023');
+    $users[] = $parent($schools[1], 62, '0920000024');
 
     return seed_build_tables($schools, $users, ['15:30', '🏠', 'เตรียมกลับบ้าน', 'เก็บของใช้และรอผู้ปกครองมารับ']);
 }

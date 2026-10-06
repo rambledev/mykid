@@ -11,7 +11,7 @@
  */
 declare(strict_types=1);
 
-$studentDaily = ['attendance', 'healthRecords', 'sleepRecords', 'foodIntake', 'portfolio', 'photos', 'stars', 'development', 'pickupRequests'];
+$studentDaily = ['attendance', 'healthRecords', 'sleepRecords', 'foodIntake', 'portfolio', 'photos', 'stars', 'development', 'pickups', 'mediaFiles'];
 
 return [
     'super_admin' => [
@@ -23,7 +23,7 @@ return [
         'scope' => 'school',
         'read'  => '*',
         'write' => ['students', 'teachers', 'classrooms', 'activities', 'foodMenus', 'calendarEvents', 'attendance',
-            'healthRecords', 'portfolio', 'stars', 'notifications', 'settings', 'cameras'],
+            'healthRecords', 'portfolio', 'stars', 'notifications', 'settings', 'cameras', 'mediaFiles'],
     ],
     'executive' => [
         'scope' => 'school',
@@ -35,12 +35,12 @@ return [
         'read'  => array_merge(['schools', 'classrooms', 'teachers', 'students', 'activities', 'foodMenus', 'statuses',
             'calendarEvents', 'messages', 'notifications', 'settings'], $studentDaily),
         'write' => ['activities', 'foodMenus', 'statuses', 'attendance', 'healthRecords', 'sleepRecords', 'foodIntake',
-            'portfolio', 'photos', 'stars', 'development', 'messages'],
+            'portfolio', 'photos', 'stars', 'development', 'messages', 'mediaFiles', 'pickups'],
     ],
     'parent' => [
         'scope' => 'student',
         'read'  => array_merge(['schools', 'classrooms', 'teachers', 'students', 'activities', 'foodMenus', 'statuses',
             'calendarEvents', 'messages', 'notifications', 'settings'], $studentDaily), // cameras: via can_view_camera() only
-        'write' => ['messages', 'pickupRequests'],
+        'write' => ['messages', 'pickups'], // pickups: create only (core/pickup.php)
     ],
 ];

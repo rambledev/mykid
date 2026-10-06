@@ -10,7 +10,12 @@ page_title('🍱', 'เมนูอาหารวันนี้', thai_date() 
 ?>
 <p class="hint hint--card">🔒 เมนูนี้เป็นของห้อง<?= e($user['classroom']['name']) ?> เท่านั้น กด “แก้ไข” ที่มื้อที่ต้องการ แล้วกด “บันทึก”</p>
 
-<section data-live id="live-food"><?php render_food_cards(classroom_food($cid), $cid); ?></section>
+<section data-live id="live-food">
+    <?php render_food_cards(classroom_food($cid), $cid); ?>
+    <?php if (has_feature('media')): ?>
+        <div class="card"><?php render_food_photos(classroom_menu_row($cid), 'อาหารวันนี้ ห้อง' . $user['classroom']['name']); ?></div>
+    <?php endif; ?>
+</section>
 
 <?php if (has_feature('foodIntake')): ?>
     <?php $intake = today_by_student('foodIntake'); ?>
@@ -40,6 +45,13 @@ page_title('🍱', 'เมนูอาหารวันนี้', thai_date() 
                 </tbody>
             </table>
         </div>
+    </section>
+<?php endif; ?>
+
+<?php if (has_feature('media')): ?>
+    <section class="card" data-live id="live-food-history">
+        <?php section_head('🗓️', 'เมนูย้อนหลัง', '', 'รูปที่เกิน 6 เดือนจะแสดงเป็น “รูปภาพหมดเวลาเก็บไฟล์”'); ?>
+        <?php render_food_history(classroom_food_history($cid)); ?>
     </section>
 <?php endif; ?>
 

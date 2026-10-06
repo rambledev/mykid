@@ -320,12 +320,15 @@ function render_activities(array $activities, bool $manage, bool $compact = fals
         echo empty_state('📋', $manage ? 'ยังไม่มีกิจกรรมวันนี้ กด “เพิ่ม” เพื่อเริ่มต้น' : 'คุณครูยังไม่ได้เพิ่มกิจกรรมของวันนี้');
         return;
     }
+    $withMedia = has_feature('media');
+    $canUpload = $withMedia && $manage && can_write_table(current_user(), 'mediaFiles');
+    $mediaOf = fn (array $a) => $withMedia ? capture(fn () => render_media_strip(media_for('activity', $a['id']), $a['title'])) : '';
     if ($manage) {
         echo '<ol class="activity-list">';
         foreach ($activities as $a) {
             echo '<li class="activity"><span class="activity__time">' . e($a['time']) . '</span><span class="activity__icon" aria-hidden="true">' . $a['icon'] . '</span>'
-                . '<div class="activity__body"><strong>' . e($a['title']) . '</strong>' . (($a['detail'] ?? '') !== '' ? '<p>' . e($a['detail']) . '</p>' : '') . '</div>'
-                . '<div class="activity__actions">' . btn_edit('activities', $a) . btn_delete('activities', $a['id'], $a['time'] . ' ' . $a['title']) . '</div></li>';
+                . '<div class="activity__body"><strong>' . e($a['title']) . '</strong>' . (($a['detail'] ?? '') !== '' ? '<p>' . e($a['detail']) . '</p>' : '') . $mediaOf($a) . '</div>'
+                . '<div class="activity__actions">' . ($canUpload ? btn_upload('activity', $a['id'], $a['time'] . ' ' . $a['title']) : '') . btn_edit('activities', $a) . btn_delete('activities', $a['id'], $a['time'] . ' ' . $a['title']) . '</div></li>';
         }
         echo '</ol>';
         return;
@@ -333,7 +336,7 @@ function render_activities(array $activities, bool $manage, bool $compact = fals
     echo '<ol class="timeline' . ($compact ? ' timeline--compact' : '') . '">';
     foreach ($activities as $a) {
         echo '<li class="timeline__item"><span class="timeline__time">' . e($a['time']) . '</span><span class="timeline__dot" aria-hidden="true">' . $a['icon'] . '</span>'
-            . '<div class="timeline__body"><strong>' . e($a['title']) . '</strong>' . (!$compact && ($a['detail'] ?? '') !== '' ? '<p>' . e($a['detail']) . '</p>' : '') . '</div></li>';
+            . '<div class="timeline__body"><strong>' . e($a['title']) . '</strong>' . (!$compact && ($a['detail'] ?? '') !== '' ? '<p>' . e($a['detail']) . '</p>' : '') . ($compact ? '' : $mediaOf($a)) . '</div></li>';
     }
     echo '</ol>';
 }
@@ -496,6 +499,11 @@ function render_field(string $key, array $field): void
         case 'secret': // write-only: the stored value is never rendered back
             echo '<input class="input" type="password" ' . $attrs . ' maxlength="' . (int) ($field['max'] ?? 300) . '" placeholder="' . e($field['placeholder'] ?? '') . '" autocomplete="off" data-secret>';
             echo '<small class="field__hint" data-secret-hint></small>';
+            break;
+        case 'image':
+            echo '<input class="input" type="file" name="images[]" accept="image/jpeg,image/png,image/webp" multiple data-image-input>'
+                . '<small class="field__hint">JPG / PNG / WebP · สูงสุด ' . MEDIA_MAX_FILES . ' รูป · ระบบย่อรูปให้อัตโนมัติ · เก็บไฟล์ 6 เดือน</small>'
+                . '<span class="upload-preview" data-upload-preview></span>';
             break;
         case 'phone':
             echo '<input class="input" type="tel" inputmode="numeric" maxlength="10" ' . $attrs . ' placeholder="08xxxxxxxx">';
@@ -672,8 +680,9 @@ function render_portfolio_grid(array $works, bool $withStudent = false, bool $ma
     foreach ($works as $w) {
         $cat = cat_find('portfolioCategories', $w['category'] ?? null);
         $student = $withStudent ? find_row('students', $w['student_id']) : null;
+        $media = has_feature('media') ? media_for('portfolio', $w['id']) : [];
         echo '<figure class="gallery__item" data-filter-item data-group="' . e($w['category'] ?? '') . '" data-search="' . e($w['title'] . ' ' . ($student['nickname'] ?? '')) . '">'
-            . art_svg((int) ($w['art'] ?? 0), $w['title'])
+            . ($media ? capture(fn () => render_media_cover($media, $w['title'], $w['date'])) : art_svg((int) ($w['art'] ?? 0), $w['title']))
             . '<figcaption><strong>' . e($w['title']) . '</strong>'
             . '<small>' . ($cat ? $cat['emoji'] . ' ' . e($cat['label']) . ' · ' : '') . e(thai_short_date($w['date'])) . ($student ? ' · ' . e($student['nickname']) : '') . '</small>'
             . (!empty($w['comment']) ? '<p>💬 ' . e($w['comment']) . '</p>' : '')
@@ -850,4 +859,141 @@ function render_cctv_viewer(): void
         </div>
     </div>
     <?php
+}
+
+/* ============================================================================
+ * Images (Portfolio / Activity / Food) — rendered only from scoped media rows
+ * ========================================================================= */
+
+/** Thumbnail strip. Expired / deleted images show a placeholder — never the old URL. */
+function render_media_strip(array $media, string $label): void
+{
+    if (!$media) {
+        return;
+    }
+    usort($media, fn ($a, $b) => strcmp($a['uploaded_at'], $b['uploaded_at']));
+    echo '<div class="media-strip">';
+    foreach ($media as $m) {
+        echo media_tile($m, $label);
+    }
+    echo '</div>';
+}
+
+function media_tile(array $m, string $label): string
+{
+    if (media_status($m) !== 'available') {
+        return '<div class="media-expired" role="img" aria-label="รูปภาพหมดเวลาเก็บไฟล์"><span aria-hidden="true">📷</span><small>รูปภาพหมดเวลาเก็บไฟล์</small></div>';
+    }
+    $src = url('media.php?id=' . $m['id']);
+    $caption = $label . ' · ' . thai_short_date(substr($m['uploaded_at'], 0, 10));
+    return '<button type="button" class="media-thumb" data-action="media-open" data-src="' . e($src) . '" data-caption="' . e($caption) . '">'
+        . '<img src="' . e($src) . '" alt="' . e($label) . '" loading="lazy" width="' . (int) $m['width'] . '" height="' . (int) $m['height'] . '"></button>';
+}
+
+/** Large cover (portfolio card): first image + "+N" when there are more. */
+function render_media_cover(array $media, string $label, string $date): void
+{
+    usort($media, fn ($a, $b) => strcmp($a['uploaded_at'], $b['uploaded_at']));
+    echo '<div class="media-cover">' . media_tile($media[0], $label) . (count($media) > 1 ? '<span class="media-cover__more">+' . (count($media) - 1) . ' รูป</span>' : '') . '</div>';
+}
+
+function btn_upload(string $ownerType, int $ownerId, string $title): string
+{
+    return '<button type="button" class="icon-btn" data-action="upload-open" data-owner-type="' . e($ownerType) . '" data-owner-id="' . $ownerId . '" data-title="' . e($title) . '" aria-label="เพิ่มรูป ' . e($title) . '">📷</button>';
+}
+
+/** Food photos of one menu row (one day of a classroom) with an upload button for staff. */
+function render_food_photos(?array $menuRow, string $label): void
+{
+    if (!$menuRow) {
+        return;
+    }
+    $canUpload = can_write_table(current_user(), 'foodMenus') && can_write_table(current_user(), 'mediaFiles');
+    $media = media_for('food', $menuRow['id']);
+    echo '<div class="food-photos">';
+    echo '<div class="food-photos__head"><strong>📸 รูปอาหาร · ' . e(thai_short_date($menuRow['date'])) . '</strong>'
+        . ($canUpload ? '<button type="button" class="btn btn--soft btn--sm" data-action="upload-open" data-owner-type="food" data-owner-id="' . $menuRow['id'] . '" data-title="' . e($label) . '">📷 เพิ่มรูปอาหาร</button>' : '') . '</div>';
+    if ($media) {
+        render_media_strip($media, $label);
+    } else {
+        echo '<p class="hint">ยังไม่มีรูปอาหาร</p>';
+    }
+    echo '</div>';
+}
+
+/** Activity images grouped by day/activity (newest first) for the given classroom ids. */
+function render_activity_media_history(array $classroomIds): void
+{
+    $groups = [];
+    foreach (scoped('mediaFiles') as $m) {
+        if ($m['owner_type'] === 'activity' && in_array($m['classroom_id'], $classroomIds, true)) {
+            $groups[$m['owner_id']][] = $m;
+        }
+    }
+    $items = [];
+    foreach ($groups as $activityId => $media) {
+        $a = find_row('activities', (int) $activityId);
+        if ($a) {
+            $items[] = ['activity' => $a, 'media' => $media];
+        }
+    }
+    usort($items, fn ($x, $y) => strcmp($y['activity']['date'] . $y['activity']['time'], $x['activity']['date'] . $x['activity']['time']));
+    if (!$items) {
+        echo empty_state('📷', 'ยังไม่มีรูปกิจกรรม');
+        return;
+    }
+    echo '<ol class="media-history">';
+    foreach ($items as ['activity' => $a, 'media' => $media]) {
+        echo '<li><p class="media-history__title"><span aria-hidden="true">' . $a['icon'] . '</span> <strong>' . e($a['title']) . '</strong>'
+            . '<small>' . e(thai_short_date($a['date'])) . ' · ' . e($a['time']) . ' น.</small></p>'
+            . (($a['detail'] ?? '') !== '' ? '<p class="hint">' . e($a['detail']) . '</p>' : '');
+        render_media_strip($media, $a['title']);
+        echo '</li>';
+    }
+    echo '</ol>';
+}
+
+/** Shared sheets: image upload (activity / food) and full-size image viewer. */
+function render_media_sheets(): void
+{
+    render_sheet_open('sheet-upload', 'เพิ่มรูปภาพ', 'ระบบย่อรูปให้อัตโนมัติ · ไฟล์ภาพเก็บไว้ 6 เดือน');
+    ?>
+    <form class="form" data-upload-form novalidate>
+        <input type="hidden" name="owner_type" value="">
+        <input type="hidden" name="owner_id" value="">
+        <p class="upload-target" data-upload-title></p>
+        <label class="field">
+            <span class="field__label">เลือกรูปภาพ <small>(JPG / PNG / WebP · สูงสุด <?= MEDIA_MAX_FILES ?> รูป)</small></span>
+            <input class="input" type="file" name="images[]" accept="image/jpeg,image/png,image/webp" multiple required data-image-input>
+        </label>
+        <span class="upload-preview" data-upload-preview></span>
+        <p class="form__error" data-form-error hidden></p>
+        <div class="row-actions">
+            <button type="button" class="btn btn--ghost" data-action="close-sheet">ยกเลิก</button>
+            <button type="submit" class="btn btn--primary">📤 อัปโหลด</button>
+        </div>
+    </form>
+    <?php
+    render_sheet_close();
+    render_sheet_open('sheet-media', 'รูปภาพ');
+    echo '<figure class="media-viewer"><img alt="" data-media-img><figcaption data-media-caption></figcaption></figure>';
+    render_sheet_close();
+}
+
+/** Past days of a classroom menu: lunch summary + food photos (or expired placeholders). */
+function render_food_history(array $menuRows): void
+{
+    if (!$menuRows) {
+        echo '<p class="empty">ยังไม่มีเมนูย้อนหลัง</p>';
+        return;
+    }
+    echo '<ol class="food-history">';
+    foreach ($menuRows as $menu) {
+        $lunch = $menu['lunch'] ?? [];
+        echo '<li><p class="food-history__day"><strong>' . e(thai_short_date($menu['date'])) . '</strong>'
+            . '<span>🍱 ' . e($lunch ? implode(' + ', $lunch) : '-') . ' · 🍚 ' . e(implode(' + ', $menu['breakfast'] ?? []) ?: '-') . '</span></p>';
+        render_media_strip(media_for('food', $menu['id']), 'อาหาร ' . thai_short_date($menu['date']));
+        echo '</li>';
+    }
+    echo '</ol>';
 }

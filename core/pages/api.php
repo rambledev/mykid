@@ -11,7 +11,13 @@
  */
 declare(strict_types=1);
 
-$input = json_decode((string) file_get_contents('php://input'), true) ?: [];
+// JSON body, or multipart/form-data when images are attached (fields: action, data=JSON, images[]).
+if (isset($_POST['action'])) {
+    $input = $_POST;
+    $input['data'] = json_decode((string) ($_POST['data'] ?? '{}'), true) ?: [];
+} else {
+    $input = json_decode((string) file_get_contents('php://input'), true) ?: [];
+}
 $action = (string) ($input['action'] ?? '');
 mk_log('Api', 'request START', ['action' => $action, 'input' => $input]);
 
@@ -31,6 +37,9 @@ function validate_fields(string $table, array $data, bool $isNew): array
 {
     $clean = [];
     foreach (table_def($table)['fields'] as $key => $field) {
+        if ($field['type'] === 'image') {
+            continue; // files are handled by core/media.php
+        }
         $present = array_key_exists($key, $data);
         $value = $present ? $data[$key] : null;
         $empty = $value === null || (is_string($value) && trim($value) === '');
@@ -87,7 +96,7 @@ function insert_defaults(string $table, array $row, array $user): array
         'portfolio'  => $row + ['date' => today(), 'art' => random_int(0, 5)],
         'photos'     => $row + ['date' => today(), 'art' => random_int(0, 5), 'emoji' => '📷'],
         'notifications' => $row + ['at' => $now, 'student_id' => null],
-        'attendance', 'healthRecords', 'sleepRecords', 'pickupRequests' => $row + ['date' => today()],
+        'attendance', 'healthRecords', 'sleepRecords', 'activities' => $row + ['date' => today()],
         'cameras' => $row + [
             'code' => sprintf('CAM-%02d', count(where(store_rows('cameras'), 'school_id', $row['school_id'])) + 1),
             'scene' => $row['classroom_id'] ? 'classroom' : 'playground', 'vendor' => '', 'camera_model' => 'IP Camera',
@@ -147,13 +156,22 @@ try {
             $table = (string) ($input['table'] ?? '');
             table_def($table);
             authorize(can_write_table($user, $table), 'บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลนี้', ['user' => $user['id'], 'role' => $user['role'], 'table' => $table]);
+            authorize($table !== 'pickups', 'กรุณาใช้เมนูรับ-ส่ง', ['table' => $table]); // status flow: pickup_* actions only
             $id = (int) ($input['id'] ?? 0);
             $data = validate_fields($table, (array) ($input['data'] ?? []), $id === 0);
             if ($id === 0) {
                 // New rows always carry every schema column (optional ones empty), so views never miss a key.
                 foreach (table_def($table)['fields'] as $key => $field) {
-                    $data += [$key => in_array($field['type'], ['classroom', 'student', 'school', 'number'], true) ? null : ''];
+                    if ($field['type'] !== 'image') {
+                        $data += [$key => in_array($field['type'], ['classroom', 'student', 'school', 'number'], true) ? null : ''];
+                    }
                 }
+            }
+            if ($table === 'portfolio' && ($pending = uploaded_files())) {
+                if (count($pending) > MEDIA_MAX_FILES) {
+                    throw new DemoValidationException('อัปโหลดได้ครั้งละไม่เกิน ' . MEDIA_MAX_FILES . ' รูป');
+                }
+                array_map('validate_image_upload', $pending); // reject bad files BEFORE saving the work
             }
             $cameraFlags = null;
             if ($table === 'cameras') {
@@ -185,6 +203,7 @@ try {
                 if ($cameraFlags) {
                     sync_camera_permissions($id, ...$cameraFlags);
                 }
+                $savedId = $id;
                 $message = 'บันทึกการแก้ไขเรียบร้อยแล้ว';
             } else {
                 $row = insert_defaults($table, apply_write_scope($user, $table, $data), $user);
@@ -193,8 +212,38 @@ try {
                 if ($cameraFlags) {
                     sync_camera_permissions($newId, ...$cameraFlags);
                 }
+                $savedId = $newId;
                 $message = 'เพิ่ม' . table_def($table)['label'] . 'เรียบร้อยแล้ว';
             }
+            if ($table === 'portfolio' && ($files = uploaded_files())) {
+                // Portfolio images: the work was just saved inside the user's scope (apply_write_scope).
+                authorize(has_feature('media') && can_write_table($user, 'mediaFiles'), 'บัญชีนี้ไม่มีสิทธิ์อัปโหลดรูปภาพ', ['role' => $user['role']]);
+                attach_uploaded_images('portfolio', find_row('portfolio', $savedId), $user, $files);
+                $message .= ' พร้อมรูปภาพ ' . count($files) . ' รูป';
+            }
+            break;
+
+        case 'upload_images':
+            // Activity / food images. Owner row + scope are re-checked on the server.
+            $ownerType = (string) ($input['owner_type'] ?? '');
+            $ownerTable = MEDIA_OWNERS[$ownerType] ?? null;
+            authorize(has_feature('media') && $ownerTable !== null && $ownerType !== 'portfolio', 'ไม่สามารถอัปโหลดรูปภาพนี้ได้', ['owner' => $ownerType]);
+            $owner = find_row($ownerTable, (int) ($input['owner_id'] ?? 0));
+            authorize($owner !== null && can_write_table($user, $ownerTable) && can_write_table($user, 'mediaFiles') && row_in_scope($user, $ownerTable, $owner),
+                'ไม่มีสิทธิ์อัปโหลดรูปภาพให้รายการนี้', ['user' => $user['id'], 'owner' => $ownerType, 'owner_id' => $input['owner_id'] ?? null]);
+            $files = uploaded_files();
+            if (!$files) {
+                throw new DemoValidationException('กรุณาเลือกรูปภาพอย่างน้อย 1 รูป');
+            }
+            $ids = attach_uploaded_images($ownerType, $owner, $user, $files);
+            $message = 'อัปโหลดรูปภาพ ' . count($ids) . ' รูปเรียบร้อยแล้ว';
+            break;
+
+        case 'cleanup_media':
+            // Admin only: delete expired PHYSICAL files in the own school; metadata is kept.
+            authorize($user['role'] === 'admin' && can_write_table($user, 'mediaFiles'), 'เฉพาะผู้ดูแลโรงเรียนเท่านั้น', ['role' => $user['role']]);
+            $done = cleanup_expired_media($user);
+            $message = $done['files'] ? 'ล้างไฟล์ภาพที่หมดอายุ ' . number_format($done['files']) . ' ไฟล์ (' . human_bytes($done['bytes']) . ') เรียบร้อยแล้ว' : 'ไม่มีไฟล์ภาพที่หมดอายุ';
             break;
 
         case 'delete':
@@ -202,6 +251,7 @@ try {
             $id = (int) ($input['id'] ?? 0);
             table_def($table);
             authorize(can_write_table($user, $table), 'บัญชีนี้ไม่มีสิทธิ์ลบข้อมูลนี้', ['table' => $table, 'id' => $id]);
+            authorize($table !== 'pickups', 'กรุณาใช้เมนูรับ-ส่ง', ['table' => $table]);
             $existing = find_row($table, $id);
             authorize($existing !== null && row_in_scope($user, $table, $existing), 'ไม่มีสิทธิ์ลบข้อมูลนอกขอบเขตของบัญชีนี้', ['table' => $table, 'id' => $id]);
             if ($table === 'classrooms' && where(store_rows('students'), 'classroom_id', $id)) {
@@ -232,6 +282,25 @@ try {
             mk_log('CCTV', 'stream requested', ['user' => $user['id'], 'role' => $user['role'], 'camera' => $camera['code'], 'school' => $camera['school_id'], 'online' => $online]);
             json_response(['ok' => true, 'camera' => camera_public($camera), 'stream' => $online ? camera_stream_descriptor($camera, $user) : null]);
 
+        /* ---- รับ-ส่ง (core/pickup.php): get status · create request · update status ---- */
+        case 'pickup_status':
+            authorize(has_feature('pickup') && can_read_table($user, 'pickups'), 'บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลรับ-ส่ง', ['role' => $user['role']]);
+            $rows = pickup_today_rows();
+            mk_log('Pickup', 'pickup_status', ['user' => $user['id'], 'rows' => count($rows)]);
+            json_response(['ok' => true, 'signature' => pickup_signature($rows), 'rows' => array_map('pickup_public', $rows), 'version' => store_state()['version']]);
+
+        case 'pickup_create':
+            authorize(has_feature('pickup'), 'ไม่สามารถดำเนินการได้');
+            $row = pickup_create($user, (int) ($input['student_id'] ?? 0), (int) ($input['eta_minutes'] ?? 0));
+            $message = 'แจ้งครูแล้ว คุณจะถึงโรงเรียนภายใน ' . $row['eta_minutes'] . ' นาที';
+            break;
+
+        case 'pickup_update':
+            authorize(has_feature('pickup'), 'ไม่สามารถดำเนินการได้');
+            $row = pickup_advance($user, (int) ($input['id'] ?? 0), (string) ($input['status'] ?? ''));
+            $message = pickup_status_meta($row['status'])['teacher'];
+            break;
+
         case 'set_status':
             authorize(can_write_table($user, 'statuses'), 'บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะห้องเรียน', ['role' => $user['role']]);
             $data = validate_fields('statuses', ['code' => $input['code'] ?? '', 'note' => $input['note'] ?? ''], true);
@@ -255,13 +324,13 @@ try {
             $scope = apply_write_scope($user, 'foodMenus', ['classroom_id' => $input['classroom_id'] ?? null]);
             store_mutate(function (array &$state) use ($scope, $meal, $items) {
                 foreach ($state['tables']['foodMenus'] as &$menu) {
-                    if ($menu['classroom_id'] === $scope['classroom_id']) {
+                    if ($menu['classroom_id'] === $scope['classroom_id'] && ($menu['date'] ?? '') === today()) {
                         $menu[$meal] = array_slice($items, 0, 6);
                         return;
                     }
                 }
                 unset($menu);
-                $state['tables']['foodMenus'][] = ['id' => $state['nextId']++] + $scope + [$meal => array_slice($items, 0, 6)];
+                $state['tables']['foodMenus'][] = ['id' => $state['nextId']++, 'date' => today()] + $scope + [$meal => array_slice($items, 0, 6)];
             });
             $message = 'บันทึกเมนูอาหารเรียบร้อยแล้ว';
             break;

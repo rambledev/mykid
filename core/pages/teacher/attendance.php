@@ -1,5 +1,5 @@
 <?php
-/** Teacher (Package A) — today's attendance + pickup for the own classroom. */
+/** Teacher (Package A) — today's attendance for the own classroom (pickup: เมนู รับ-ส่ง). */
 declare(strict_types=1);
 
 $user = current_user();
@@ -22,16 +22,6 @@ page_title('✅', 'เช็คชื่อวันนี้', thai_date() . ' 
         <ul class="att-list" data-filter-list="attendance">
             <?php foreach ($students as $s): ?>
                 <?php render_attendance_row($s, $att[$s['id']] ?? null, true); ?>
-            <?php endforeach; ?>
-        </ul>
-    </section>
-
-    <section class="card">
-        <?php section_head('🚗', 'ผู้มารับวันนี้'); ?>
-        <ul class="menu-list">
-            <?php foreach (today_by_student('pickupRequests') as $p): ?>
-                <?php $s = find_row('students', $p['student_id']); ?>
-                <li><span><?= e($s['nickname']) ?> · <?= e($p['person']) ?> (<?= e($p['time']) ?> น.)</span><?= tone_badge(cat_find('pickupStatus', $p['status'])) ?></li>
             <?php endforeach; ?>
         </ul>
     </section>

@@ -11,15 +11,11 @@ tab_bar('portfolio', ['photos' => '📷 ภาพกิจกรรม', 'works'
 ?>
 <div data-live id="live-portfolio">
     <section class="card" data-tab-panel="portfolio:photos">
-        <?php section_head('📷', 'ภาพกิจกรรมของห้อง', btn_add('photos', 'เพิ่มภาพ'), 'ภาพตัวอย่าง (Placeholder) — ระบบจริงอัปโหลดรูปได้'); ?>
-        <?php
-        $photos = scoped('photos');
-        usort($photos, fn ($a, $b) => strcmp($b['date'], $a['date']));
-        render_photo_grid($photos, true);
-        ?>
+        <?php section_head('📷', 'ภาพกิจกรรมของห้อง', '<a class="btn btn--soft btn--sm" href="activities.php">📷 เพิ่มรูปที่กิจกรรม</a>', 'แยกตามวันและกิจกรรม · ไฟล์ภาพเก็บไว้ 6 เดือน'); ?>
+        <?php render_activity_media_history([$cid]); ?>
     </section>
     <section class="card" data-tab-panel="portfolio:works" hidden>
-        <?php section_head('🎨', 'ผลงานเด็ก', btn_add('portfolio', 'เพิ่มผลงาน')); ?>
+        <?php section_head('🎨', 'ผลงานเด็ก', btn_add('portfolio', 'เพิ่มผลงาน'), 'เลือกนักเรียน → ชื่อผลงาน → รายละเอียด → รูปภาพ'); ?>
         <?php filter_bar('works', cat_options('portfolioCategories'), 'ค้นหาผลงานหรือชื่อเด็ก...'); ?>
         <?php
         $works = scoped('portfolio');
@@ -29,6 +25,5 @@ tab_bar('portfolio', ['photos' => '📷 ภาพกิจกรรม', 'works'
     </section>
 </div>
 <?php
-render_form_sheet('photos', 'เพิ่มภาพกิจกรรม', ['classroom_id']);
 render_form_sheet('portfolio', 'เพิ่มผลงาน');
 mk_footer();

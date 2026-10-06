@@ -1,11 +1,18 @@
 # Mykid — PHP 8.3 + Apache image (Coolify / any Docker host)
 #
-# The app is plain PHP (no database, no Composer, no Node.js). It only needs mbstring, json,
-# session, hash and pcre — all compiled into the official php image, so no extra extensions.
+# The app is plain PHP (no database, no Composer, no Node.js). Built-in extensions cover mbstring,
+# json, session, hash, pcre and fileinfo; GD (JPEG/PNG/WebP) is added for image resizing.
 # Runtime demo data is written to pack-{a,b,c}/storage (falls back to the PHP session if
 # not writable). Mount volumes there if the demo data should survive redeploys.
 
 FROM php:8.3-apache
+
+# GD with JPEG / PNG / WebP — used to resize & re-encode uploaded images (max 1600px).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" gd \
+    && rm -rf /var/lib/apt/lists/*
 
 # Production PHP defaults (display_errors off, errors logged) + small hardening.
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
@@ -15,6 +22,10 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
         echo 'session.cookie_httponly = 1'; \
         echo 'session.use_strict_mode = 1'; \
         echo 'session.cookie_samesite = Lax'; \
+        echo 'upload_max_filesize = 12M'; \
+        echo 'post_max_size = 64M'; \
+        echo 'max_file_uploads = 10'; \
+        echo 'memory_limit = 256M'; \
     } > "$PHP_INI_DIR/conf.d/zz-mykid.ini"
 
 # Apache: serve /var/www/html, block internal folders, no rewrite rules needed.

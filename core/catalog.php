@@ -78,10 +78,16 @@ function mk_catalog(): array
             ['code' => 'teacher',      'label' => 'ข้อความจากครู',     'emoji' => '💬'],
             ['code' => 'alert',        'label' => 'แจ้งเตือนผู้ปกครอง', 'emoji' => '🔔'],
         ],
+        // รับ-ส่ง (Package A): coming → preparing → waiting → completed (core/pickup.php)
         'pickupStatus' => [
-            ['code' => 'pending',   'label' => 'รอยืนยัน',    'emoji' => '⏳', 'tone' => 'warning'],
-            ['code' => 'confirmed', 'label' => 'ยืนยันแล้ว',   'emoji' => '✅', 'tone' => 'good'],
-            ['code' => 'picked',    'label' => 'รับกลับแล้ว',  'emoji' => '🏠', 'tone' => 'neutral'],
+            ['code' => 'coming',    'label' => 'กำลังมารับ',      'emoji' => '🟡', 'tone' => 'warning',
+             'parent' => 'กำลังมารับ', 'teacher' => 'ผู้ปกครองกำลังมารับ'],
+            ['code' => 'preparing', 'label' => 'กำลังพาไปจุดรับ',  'emoji' => '🔵', 'tone' => 'info',
+             'parent' => 'ครูกำลังพานักเรียนไปจุดรับ', 'teacher' => 'ครูกำลังพานักเรียนไปจุดรับ'],
+            ['code' => 'waiting',   'label' => 'ถึงจุดรับแล้ว',    'emoji' => '🟢', 'tone' => 'good',
+             'parent' => 'นักเรียนถึงจุดรับแล้ว', 'teacher' => 'นักเรียนรออยู่ที่จุดรับ'],
+            ['code' => 'completed', 'label' => 'ส่งมอบเรียบร้อย',  'emoji' => '✅', 'tone' => 'neutral',
+             'parent' => 'ส่งมอบนักเรียนเรียบร้อย', 'teacher' => 'ส่งมอบนักเรียนเรียบร้อย'],
         ],
         'genders' => [
             ['code' => 'm', 'label' => 'ชาย'],

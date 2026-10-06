@@ -48,6 +48,8 @@ require_once MK_PKG_ROOT . '/includes/cctv-data.php';
 require_once MK_CORE . '/store.php';
 require_once MK_CORE . '/permissions.php';
 require_once MK_CORE . '/cctv.php';
+require_once MK_CORE . '/media.php';
+require_once MK_CORE . '/pickup.php';
 require_once MK_CORE . '/auth.php';
 require_once MK_CORE . '/data-filter.php';
 require_once MK_CORE . '/components.php';

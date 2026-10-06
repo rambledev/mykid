@@ -108,17 +108,52 @@ function classroom_status_history(int $classroomId): array
     )));
 }
 
-function classroom_activities(int $classroomId): array
+/** A classroom's activity schedule for one day (default: today). */
+function classroom_activities(int $classroomId, ?string $date = null): array
 {
-    $rows = where(scoped('activities'), 'classroom_id', $classroomId);
+    $date ??= today();
+    $rows = array_values(array_filter(where(scoped('activities'), 'classroom_id', $classroomId), fn ($a) => ($a['date'] ?? '') === $date));
     usort($rows, fn ($a, $b) => strcmp($a['time'], $b['time']));
     return $rows;
 }
 
-/** Meal types merged with the classroom's menu items. */
-function classroom_food(int $classroomId): array
+/** The classroom's menu row for one day (default: today), or null. */
+function classroom_menu_row(int $classroomId, ?string $date = null): ?array
 {
-    $menu = where(scoped('foodMenus'), 'classroom_id', $classroomId)[0] ?? [];
+    $date ??= today();
+    foreach (where(scoped('foodMenus'), 'classroom_id', $classroomId) as $menu) {
+        if (($menu['date'] ?? '') === $date) {
+            return $menu;
+        }
+    }
+    return null;
+}
+
+/** Dates (newest first) that have a menu / activities for the classroom, excluding today. */
+function classroom_history_dates(string $table, int $classroomId, int $limit = 6): array
+{
+    $dates = array_unique(array_map(fn ($r) => $r['date'] ?? '', where(scoped($table), 'classroom_id', $classroomId)));
+    $dates = array_filter($dates, fn ($d) => $d !== '' && $d < today());
+    rsort($dates);
+    return array_slice($dates, 0, $limit);
+}
+
+/**
+ * Past menu rows of a classroom (newest first): the last $days days, plus any older day that
+ * has food images — so expired images still show their place in history.
+ */
+function classroom_food_history(int $classroomId, int $days = 6): array
+{
+    $rows = array_values(array_filter(where(scoped('foodMenus'), 'classroom_id', $classroomId), fn ($m) => ($m['date'] ?? '') < today()));
+    usort($rows, fn ($a, $b) => strcmp($b['date'], $a['date']));
+    $withMedia = has_feature('media') ? media_by_owner('food') : [];
+    return array_values(array_filter($rows, fn ($m, $i) => $i < $days || isset($withMedia[$m['id']]), ARRAY_FILTER_USE_BOTH));
+}
+
+/** Meal types merged with the classroom's menu items for one day (default: today). */
+function classroom_food(int $classroomId, ?string $date = null): array
+{
+    $menu = classroom_menu_row($classroomId, $date) ?? [];
     return array_map(function ($meal) use ($menu) {
         $meal['items'] = $menu[$meal['meal']] ?? [];
         return $meal;
@@ -172,7 +207,7 @@ function student_thread(int $studentId): array
 function kpis(): array
 {
     $rooms = scoped('classrooms');
-    $menus = scoped('foodMenus');
+    $menus = today_rows(scoped('foodMenus'));
     $ready = 0;
     foreach ($rooms as $room) {
         $menu = where($menus, 'classroom_id', $room['id'])[0] ?? null;
@@ -187,8 +222,8 @@ function kpis(): array
         'teachers'   => count(scoped('teachers')),
         'classrooms' => count($rooms),
         'parents'    => count(scoped('students')),
-        'activities' => count(scoped('activities')),
-        'activitiesPerRoom' => $rooms ? (int) round(count(scoped('activities')) / count($rooms)) : 0,
+        'activities' => count(today_rows(scoped('activities'))),
+        'activitiesPerRoom' => $rooms ? (int) round(count(today_rows(scoped('activities'))) / count($rooms)) : 0,
         'foodReady'  => $ready,
         'present'    => $here,
         'attendancePct' => percent($here, count($attendance)),

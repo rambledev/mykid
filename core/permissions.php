@@ -68,6 +68,9 @@ function row_in_scope(array $user, string $table, array $row): bool
         'student_self'   => $scope === 'classroom' ? ($row['classroom_id'] ?? null) === $classroomId : ($row['id'] ?? null) === $studentId,
         'student'        => $scope === 'classroom' ? ($row['classroom_id'] ?? null) === $classroomId : ($row['student_id'] ?? null) === $studentId,
         'camera'         => can_view_camera($row, $user), // CCTV has its own rule set (core/cctv.php)
+        'media'          => ($row['student_id'] ?? null) !== null
+                            ? ($scope === 'classroom' ? ($row['classroom_id'] ?? null) === $classroomId : $row['student_id'] === $studentId)
+                            : ($row['classroom_id'] ?? null) === $classroomId,
         'targeted'       => (($row['classroom_id'] ?? null) === null || $row['classroom_id'] === $classroomId)
                             && ($scope === 'classroom' || ($row['student_id'] ?? null) === null || $row['student_id'] === $studentId),
         default          => false,

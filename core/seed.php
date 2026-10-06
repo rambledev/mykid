@@ -202,6 +202,8 @@ function seed_build_tables(array $schools, array $users, ?array $extraActivity =
         }
     }
 
+    seed_history_days($t, $nextId);
+
     foreach ($t['students'] as $st) {
         seed_student_day($t, $st, $teachersByRoom[$st['classroom_id']][0] ?? null, $nextId);
     }
@@ -212,11 +214,15 @@ function seed_build_tables(array $schools, array $users, ?array $extraActivity =
 
     seed_messages($t, $classroomsById, $teachersByRoom, $nextId);
     seed_cameras($t, $nextId);
+    seed_pickups_day($t, $today, $nextId);
+    if (has_feature('media')) {
+        seed_media($t, $nextId); // demo image files + metadata (core/media.php)
+    }
 
     return ['tables' => $t, 'nextId' => $nextId];
 }
 
-/** Today's attendance / sleep / health / meals / pickup + history for one student. */
+/** Today's daily records + history (stars, development, portfolio) for one student. */
 function seed_student_day(array &$t, array $st, ?array $teacher, int &$nextId): void
 {
     $today = today();
@@ -224,44 +230,7 @@ function seed_student_day(array &$t, array $st, ?array $teacher, int &$nextId): 
     $base = ['school_id' => $st['school_id'], 'classroom_id' => $st['classroom_id'], 'student_id' => $sid];
     $isFirst = $sid === 1; // น้องต้น — matches the examples in the brief
 
-    $r = mk_rand($sid, 'att') % 100;
-    $status = $isFirst ? 'present' : ($r < 82 ? 'present' : ($r < 90 ? 'late' : ($r < 96 ? 'leave' : 'absent')));
-    $here = in_array($status, ['present', 'late'], true);
-    $checkIn = $here ? sprintf('%02d:%02d', $status === 'late' ? 8 : 7, $status === 'late' ? 10 + $r % 25 : 15 + $r % 40) : '';
-    if ($isFirst) {
-        $checkIn = '07:42';
-    }
-    $t['attendance'][] = ['id' => $nextId++] + $base + ['date' => $today, 'status' => $status, 'checkIn' => $checkIn,
-        'note' => $status === 'leave' ? (['ลาป่วย', 'ลากิจ'][$r % 2]) : ''];
-
-    $sr = mk_rand($sid, 'sleep') % 100;
-    $t['sleepRecords'][] = ['id' => $nextId++] + $base + ['date' => $today,
-        'start' => $isFirst ? '12:15' : ($here ? sprintf('12:%02d', 5 + $sr % 20) : ''),
-        'end' => $isFirst ? '13:45' : ($here ? sprintf('13:%02d', 30 + $sr % 25) : ''),
-        'quality' => $isFirst ? 'good' : (!$here ? 'none' : ($sr < 85 ? 'good' : 'restless')),
-        'note' => $isFirst ? 'หลับสบาย ตื่นมาอารมณ์ดี' : ''];
-
-    $hr = mk_rand($sid, 'health') % 100;
-    $watch = !$isFirst && $here && $hr < 8;
-    $t['healthRecords'][] = ['id' => $nextId++] + $base + ['date' => $today,
-        'temperature' => $isFirst ? 36.5 : ($watch ? 37.4 : round(36.2 + ($hr % 9) / 10, 1)),
-        'condition' => $watch ? 'watch' : 'normal',
-        'symptoms' => $watch ? (['มีน้ำมูกเล็กน้อย', 'ไอเล็กน้อย'][$hr % 2]) : 'ไม่มีอาการผิดปกติ',
-        'note' => $isFirst ? 'ร่าเริงแจ่มใส' : ($watch ? 'ครูจะคอยสังเกตอาการ' : '')];
-
-    $levels = [];
-    foreach (mk_catalog()['meals'] as $i => $meal) {
-        $x = mk_rand($sid, 'meal', $i) % 100;
-        $levels[$meal['meal']] = !$here ? 'none' : ($x < 65 ? 'good' : ($x < 88 ? 'some' : 'little'));
-    }
-    if ($isFirst) {
-        $levels['lunch'] = 'some';
-    }
-    $t['foodIntake'][] = ['id' => $nextId++] + $base + ['date' => $today, 'levels' => $levels];
-
-    $relation = $st['parentRelation'] ?? 'แม่';
-    $t['pickupRequests'][] = ['id' => $nextId++] + $base + ['date' => $today, 'person' => 'คุณ' . $relation,
-        'relation' => $relation, 'time' => '15:30', 'status' => $isFirst || $sid % 3 === 0 ? 'confirmed' : 'pending'];
+    seed_student_daily($t, $st, $today, $nextId);
 
     // Stars (last two weeks). น้องต้น totals 28 as in the brief.
     $starRows = $isFirst
@@ -291,6 +260,129 @@ function seed_student_day(array &$t, array $st, ?array $teacher, int &$nextId): 
             'title' => $title, 'category' => $cat, 'art' => ($sid + $i) % 6,
             'comment' => ['ใช้สีสดใสและสร้างสรรค์มาก', 'ตั้งใจทำจนเสร็จ เก่งมากค่ะ', 'มีพัฒนาการดีขึ้นอย่างเห็นได้ชัด'][$i]];
     }
+}
+
+/**
+ * One day of per-student records: attendance, sleep, health, food intake.
+ * Used by the initial seed AND by seed_roll_day() — the date is part of the random key,
+ * so each day looks different (น้องต้น keeps the fixed values from the brief).
+ */
+function seed_student_daily(array &$t, array $st, string $date, int &$nextId): void
+{
+    $sid = $st['id'];
+    $base = ['school_id' => $st['school_id'], 'classroom_id' => $st['classroom_id'], 'student_id' => $sid];
+    $isFirst = $sid === 1;
+    $day = $date === today() && !isset($t['__rolling']) ? '' : $date; // first seed keeps the original values
+
+    $r = mk_rand($sid, 'att', $day) % 100;
+    $status = $isFirst ? 'present' : ($r < 82 ? 'present' : ($r < 90 ? 'late' : ($r < 96 ? 'leave' : 'absent')));
+    $here = in_array($status, ['present', 'late'], true);
+    $checkIn = $here ? sprintf('%02d:%02d', $status === 'late' ? 8 : 7, $status === 'late' ? 10 + $r % 25 : 15 + $r % 40) : '';
+    if ($isFirst) {
+        $checkIn = '07:42';
+    }
+    $t['attendance'][] = ['id' => $nextId++] + $base + ['date' => $date, 'status' => $status, 'checkIn' => $checkIn,
+        'note' => $status === 'leave' ? (['ลาป่วย', 'ลากิจ'][$r % 2]) : ''];
+
+    $sr = mk_rand($sid, 'sleep', $day) % 100;
+    $t['sleepRecords'][] = ['id' => $nextId++] + $base + ['date' => $date,
+        'start' => $isFirst ? '12:15' : ($here ? sprintf('12:%02d', 5 + $sr % 20) : ''),
+        'end' => $isFirst ? '13:45' : ($here ? sprintf('13:%02d', 30 + $sr % 25) : ''),
+        'quality' => $isFirst ? 'good' : (!$here ? 'none' : ($sr < 85 ? 'good' : 'restless')),
+        'note' => $isFirst ? 'หลับสบาย ตื่นมาอารมณ์ดี' : ''];
+
+    $hr = mk_rand($sid, 'health', $day) % 100;
+    $watch = !$isFirst && $here && $hr < 8;
+    $t['healthRecords'][] = ['id' => $nextId++] + $base + ['date' => $date,
+        'temperature' => $isFirst ? 36.5 : ($watch ? 37.4 : round(36.2 + ($hr % 9) / 10, 1)),
+        'condition' => $watch ? 'watch' : 'normal',
+        'symptoms' => $watch ? (['มีน้ำมูกเล็กน้อย', 'ไอเล็กน้อย'][$hr % 2]) : 'ไม่มีอาการผิดปกติ',
+        'note' => $isFirst ? 'ร่าเริงแจ่มใส' : ($watch ? 'ครูจะคอยสังเกตอาการ' : '')];
+
+    $levels = [];
+    foreach (mk_catalog()['meals'] as $i => $meal) {
+        $x = mk_rand($sid, 'meal', $i, $day) % 100;
+        $levels[$meal['meal']] = !$here ? 'none' : ($x < 65 ? 'good' : ($x < 88 ? 'some' : 'little'));
+    }
+    if ($isFirst) {
+        $levels['lunch'] = 'some';
+    }
+    $t['foodIntake'][] = ['id' => $nextId++] + $base + ['date' => $date, 'levels' => $levels];
+}
+
+/**
+ * Activities and food menus carry a date. Today's rows keep the ids from the school seed;
+ * the previous 6 days + one day ~7 months ago (for the image-retention demo) are cloned
+ * with a rotated menu so the history looks real.
+ */
+function seed_history_days(array &$t, int &$nextId): void
+{
+    $today = today();
+    foreach (['activities', 'foodMenus'] as $table) {
+        foreach ($t[$table] as &$row) {
+            $row['date'] = $today;
+        }
+        unset($row);
+    }
+
+    $todayActivities = $t['activities'];
+    $todayMenus = $t['foodMenus'];
+    foreach (array_merge(range(1, 6), [SEED_OLD_DAYS]) as $daysAgo) {
+        $date = date('Y-m-d', strtotime("-$daysAgo day"));
+        foreach ($todayActivities as $a) {
+            $t['activities'][] = ['id' => $nextId++, 'date' => $date] + $a;
+        }
+        foreach ($todayMenus as $m) {
+            $rotated = SEED_MENUS[($m['classroom_id'] + $daysAgo) % 3];
+            $t['foodMenus'][] = ['id' => $nextId++, 'date' => $date] + array_intersect_key($rotated, array_flip(['breakfast', 'lunch', 'snack', 'milk', 'fruit'])) + $m;
+        }
+    }
+}
+
+const SEED_OLD_DAYS = 200; // ~6.6 months ago → images from that day are past the 6-month retention
+
+/**
+ * Move the demo forward to a new day WITHOUT deleting anything (business rule: no automatic
+ * database deletes). Adds today's per-student records, a morning status, and copies the most
+ * recent activity schedule / menu of each classroom to today. History stays untouched.
+ */
+function seed_roll_day(array &$state): void
+{
+    $today = today();
+    $t = &$state['tables'];
+    $nextId = &$state['nextId'];
+    mk_log('Seed', 'seed_roll_day START', ['from' => $state['seedDate'], 'to' => $today]);
+
+    foreach ($t['classrooms'] as $room) {
+        foreach (['activities', 'foodMenus'] as $table) {
+            $rows = array_values(array_filter($t[$table], fn ($r) => $r['classroom_id'] === $room['id']));
+            if (!$rows || array_filter($rows, fn ($r) => ($r['date'] ?? '') === $today)) {
+                continue;
+            }
+            $latest = max(array_map(fn ($r) => $r['date'] ?? '', $rows));
+            foreach ($rows as $r) {
+                if (($r['date'] ?? '') === $latest) {
+                    $t[$table][] = ['id' => $nextId++, 'date' => $today] + $r;
+                }
+            }
+        }
+        $teacher = array_values(array_filter($t['teachers'], fn ($x) => $x['classroom_id'] === $room['id']))[0] ?? null;
+        array_unshift($t['statuses'], ['id' => $nextId++, 'school_id' => $room['school_id'], 'classroom_id' => $room['id'],
+            'code' => 'line_up', 'note' => '', 'at' => "$today 08:00:00", 'by' => $teacher['id'] ?? null]);
+    }
+
+    $t['__rolling'] = true;
+    $has = array_flip(array_map(fn ($a) => $a['student_id'], array_filter($t['attendance'], fn ($a) => $a['date'] === $today)));
+    foreach ($t['students'] as $st) {
+        if (!isset($has[$st['id']])) {
+            seed_student_daily($t, $st, $today, $nextId);
+        }
+    }
+    unset($t['__rolling']);
+    seed_pickups_day($t, $today, $nextId);
+
+    $state['seedDate'] = $today;
+    mk_log('Seed', 'seed_roll_day END', ['nextId' => $nextId]);
 }
 
 /** Calendar, notifications and settings for one school (cameras: seed_cameras()). */
@@ -444,4 +536,77 @@ function seed_cameras(array &$t, int &$nextId): void
             }
         }
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * รับ-ส่ง (pickups) — mock requests so every status can be tried in the demo
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Today's mock pickups: per classroom, 4 children WITHOUT a demo parent account get one
+ * request each in coming / preparing / waiting / completed. Children of demo parents get none,
+ * so "แจ้งมารับ" can be tried from the parent side. Times are relative to the seed time.
+ */
+function seed_pickups_day(array &$t, string $date, int &$nextId): void
+{
+    if (!has_feature('pickup')) {
+        return;
+    }
+    mk_log('Seed', 'seed_pickups_day START', ['date' => $date]);
+    $t['pickups'] ??= [];
+    $demoChildren = [];
+    $teacherUsers = [];
+    foreach ($t['users'] as $u) {
+        if ($u['role'] === 'parent' && $u['student_id']) {
+            $demoChildren[$u['student_id']] = true;
+        }
+        if ($u['role'] === 'teacher' && $u['classroom_id']) {
+            $teacherUsers[$u['classroom_id']] ??= $u;
+        }
+    }
+    $now = time();
+    $at = fn (int $minutesAgo) => date('Y-m-d H:i:s', $now - $minutesAgo * 60);
+    // [status, requested min ago, eta, preparing ago, waiting ago, completed ago]
+    $plan = [
+        ['coming', 3, 15, null, null, null],
+        ['preparing', 8, 10, 2, null, null],
+        ['waiting', 12, 10, 6, 1, null],
+        ['completed', 45, 15, 33, 30, 25],
+    ];
+    $added = 0;
+    foreach ($t['classrooms'] as $room) {
+        $kids = array_values(array_filter($t['students'], fn ($s) => $s['classroom_id'] === $room['id'] && !isset($demoChildren[$s['id']])));
+        $teacher = $teacherUsers[$room['id']] ?? null;
+        foreach ($plan as $i => [$status, $req, $eta, $prep, $wait, $done]) {
+            $s = $kids[$i * 3] ?? null; // spread over the class list
+            if (!$s) {
+                continue;
+            }
+            $t['pickups'][] = ['id' => $nextId++, 'school_id' => $s['school_id'], 'classroom_id' => $s['classroom_id'],
+                'student_id' => $s['id'], 'date' => $date, 'status' => $status,
+                'parent_id' => null, 'parent_name' => 'คุณ' . ($s['parentRelation'] ?? 'แม่'),
+                'eta_minutes' => $eta, 'requested_at' => $at($req), 'eta_at' => $at($req - $eta),
+                'preparing_at' => $prep === null ? null : $at($prep), 'waiting_at' => $wait === null ? null : $at($wait),
+                'completed_at' => $done === null ? null : $at($done),
+                'completed_by' => $done === null ? null : ($teacher['id'] ?? null),
+                'completed_by_name' => $done === null ? null : ($teacher['name'] ?? 'คุณครู')];
+            $added++;
+        }
+    }
+    mk_log('Seed', 'seed_pickups_day END', ['added' => $added]);
+}
+
+/**
+ * Add tables introduced after a state file was created (no reseed, nothing removed).
+ * Returns true when the state was changed.
+ */
+function seed_upgrade(array &$state): bool
+{
+    if (!has_feature('pickup') || isset($state['tables']['pickups'])) {
+        return false;
+    }
+    mk_log('Seed', 'seed_upgrade: add pickups table');
+    $state['tables']['pickups'] = [];
+    seed_pickups_day($state['tables'], today(), $state['nextId']);
+    return true;
 }

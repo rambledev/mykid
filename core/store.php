@@ -3,7 +3,11 @@
  * Core store — demo "database" for a package (no real database).
  *
  * All tables live in pack-x/storage/demo-state.json, seeded by the package's pkg_seed().
- * Falls back to the PHP session when the folder is not writable. Re-seeds every new day.
+ * Falls back to the PHP session when the folder is not writable.
+ *
+ * Business rule (Demo Final): data is NEVER deleted automatically. On a new day the state is
+ * rolled forward (seed_roll_day appends today's records); a full reseed only happens when the
+ * file is missing / the schema version changes, or when an admin presses "รีเซ็ตข้อมูล Demo".
  * Callers must authorise first (permissions.php); the store only reads/writes rows.
  */
 declare(strict_types=1);
@@ -16,7 +20,7 @@ final class PermissionDeniedException extends RuntimeException
 {
 }
 
-const MK_STORE_SCHEMA = 4; // bump when the seed shape changes (forces a reseed)
+const MK_STORE_SCHEMA = 5; // bump when the seed shape changes (forces a reseed)
 
 function store_file(): string
 {
@@ -43,7 +47,6 @@ function store_is_valid(mixed $state): bool
 {
     return is_array($state)
         && ($state['schema'] ?? 0) === MK_STORE_SCHEMA
-        && ($state['seedDate'] ?? '') === today()
         && isset($state['tables'], $state['version']);
 }
 
@@ -71,8 +74,8 @@ function store_state(?array $replace = null): array
         $loaded = $_SESSION['demo_state'] ?? null;
     }
 
-    if (!store_is_valid($loaded)) {
-        mk_log('Store', 'state missing or stale, reseeding');
+    if (!store_is_valid($loaded) || ($loaded['seedDate'] ?? '') !== today() || seed_upgrade($loaded)) {
+        mk_log('Store', 'state missing (seed), from an earlier day (roll forward) or missing a new table');
         return store_mutate(fn (array &$s) => null)['state'];
     }
     return $state = $loaded;
@@ -93,7 +96,10 @@ function store_mutate(callable $mutator): array
         $state = $_SESSION['demo_state'] ?? null;
         if (!store_is_valid($state)) {
             $state = store_seed();
+        } elseif (($state['seedDate'] ?? '') !== today()) {
+            seed_roll_day($state); // new day: append, never delete
         }
+        seed_upgrade($state); // tables added after this state was created
         $result = $mutator($state);
         $state['version']++;
         $state['updatedAt'] = date('c');
@@ -112,7 +118,10 @@ function store_mutate(callable $mutator): array
         $state = $raw ? json_decode($raw, true) : null;
         if (!store_is_valid($state)) {
             $state = store_seed();
+        } elseif (($state['seedDate'] ?? '') !== today()) {
+            seed_roll_day($state); // new day: append, never delete
         }
+        seed_upgrade($state); // tables added after this state was created
         $result = $mutator($state);
         $state['version']++;
         $state['updatedAt'] = date('c');

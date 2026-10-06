@@ -22,7 +22,7 @@ foreach (scoped('schools') as $school) {
         'attendance' => percent($here, count($attendance)),
         'watch'      => count(array_filter(today_rows($in('healthRecords')), fn ($h) => $h['condition'] !== 'normal')),
         'starsAvg'   => $students ? round($stars / $students, 1) : 0,
-        'activities' => $rooms ? (int) round(count($in('activities')) / $rooms) : 0,
+        'activities' => $rooms ? (int) round(count(today_rows($in('activities'))) / $rooms) : 0,
         'camOnline'  => $cams['online'],
         'camTotal'   => $cams['total'],
     ];

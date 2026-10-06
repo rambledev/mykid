@@ -1,79 +1,90 @@
 <?php
+/**
+ * Mykid — entry page of the Final Demo (Package A = the customer's system).
+ *
+ * Role selection only: each card opens Package A's existing login with the demo account
+ * pre-filled and auto-submitted (login.php?role=…&demo=…&go=1). Accounts are read from
+ * Package A's own data, so nothing is duplicated here. Package B / C stay untouched and are
+ * still reachable by their own URLs for regression testing.
+ */
 declare(strict_types=1);
 
-require __DIR__ . '/includes/common.php';
-$packages = require __DIR__ . '/includes/packages.php';
+require __DIR__ . '/pack-a/includes/bootstrap.php';
+
+$current = current_user();
+$schools = array_column(store_rows('schools'), null, 'id');
+
+$roles = [
+    'super_admin' => ['title' => 'Super Admin', 'desc' => 'จัดการระบบและข้อมูลทุกโรงเรียน'],
+    'admin'       => ['title' => 'School Admin', 'desc' => 'จัดการข้อมูลภายในโรงเรียน'],
+    'executive'   => ['title' => 'Executive', 'desc' => 'ดูข้อมูลและรายงานภาพรวม'],
+    'teacher'     => ['title' => 'Teacher', 'desc' => 'จัดการข้อมูลนักเรียนและกิจกรรมประจำวัน'],
+    'parent'      => ['title' => 'Parent', 'desc' => 'ดูข้อมูลและกิจกรรมของบุตรหลาน'],
+];
+
+// One demo account per role and school (first one found in Package A's users).
+foreach (store_rows('users') as $u) {
+    if (isset($roles[$u['role']]) && !isset($roles[$u['role']]['accounts'][(int) $u['school_id']])) {
+        $roles[$u['role']]['accounts'][(int) $u['school_id']] = $u;
+    }
+}
+
+/** Link that enters Package A as this account (logs the current demo user out first). */
+$enter = function (array $u) use ($current): string {
+    $query = http_build_query(['role' => $u['role'], 'demo' => $u['phone'], 'go' => 1]);
+    return 'pack-a/' . ($current ? 'logout.php?' : 'login.php?') . $query;
+};
+
+mk_header(['id' => 'role-select', 'title' => 'เลือกบทบาท', 'layout' => 'landing', 'theme' => 'landing']);
 ?>
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#FFF6E9">
-    <title>Mykid — ระบบติดตามและดูแลเด็กสำหรับโรงเรียนอนุบาล</title>
-    <link rel="stylesheet" href="<?= e(root_asset('assets/css/style.css')) ?>">
-</head>
-<body class="site">
-<?= sky_decor() ?>
 
-<main class="site__main">
-    <header class="hero">
-        <span class="hero__logo"><?= logo_svg() ?></span>
-        <h1 class="hero__title">Mykid</h1>
-        <p class="hero__subtitle">ระบบติดตามและดูแลเด็กสำหรับโรงเรียนอนุบาล</p>
-        <span class="pill pill--soft">✨ Demo สำหรับนำเสนอ</span>
-    </header>
+<section class="entry-hero">
+    <span class="entry-hero__logo"><?= logo_svg() ?></span>
+    <h1 class="entry-hero__title">Mykid</h1>
+    <p class="entry-hero__subtitle">ระบบสื่อสารระหว่างโรงเรียนและผู้ปกครอง</p>
+    <p class="entry-hero__hint">เลือกบทบาทเพื่อเข้าสู่ระบบ Demo</p>
+</section>
 
-    <section class="packages" aria-label="แพ็กเกจ Mykid">
-        <?php foreach ($packages as $pkg): ?>
-            <?php $featured = !empty($pkg['featured']); ?>
-            <article class="pkg <?= $featured ? 'pkg--featured' : '' ?> pkg--<?= e($pkg['key']) ?>">
-                <div class="pkg__head">
-                    <span class="pkg__emoji" aria-hidden="true"><?= $pkg['emoji'] ?></span>
-                    <div>
-                        <p class="pkg__code"><?= e($pkg['code']) ?></p>
-                        <h2 class="pkg__name"><?= e($pkg['name']) ?></h2>
-                    </div>
+<?php if ($current): ?>
+    <div class="entry-session">
+        <span aria-hidden="true"><?= $current['emoji'] ?></span>
+        <p>กำลังใช้งานอยู่ในชื่อ <strong><?= e($current['name']) ?></strong><small><?= e($current['scopeLabel']) ?></small></p>
+        <a class="btn btn--soft btn--sm" href="pack-a/<?= e(home_path($current['role'])) ?>">ไปหน้าหลัก</a>
+    </div>
+<?php endif; ?>
+
+<nav class="role-select" aria-label="เลือกบทบาท">
+    <?php foreach ($roles as $role => $r): ?>
+        <?php
+        $meta = role_meta($role);
+        $accounts = $r['accounts'] ?? [];
+        ksort($accounts);
+        $main = reset($accounts);
+        if (!$main) {
+            continue;
+        }
+        ?>
+        <article class="role-option role-option--<?= e($meta['theme']) ?>">
+            <a class="role-option__main" href="<?= e($enter($main)) ?>">
+                <span class="role-option__icon" aria-hidden="true"><?= $meta['emoji'] ?></span>
+                <span class="role-option__text">
+                    <strong><?= e($r['title']) ?></strong>
+                    <small><?= e($meta['th']) ?></small>
+                    <span><?= e($r['desc']) ?></span>
+                </span>
+                <span class="role-option__go" aria-hidden="true"><?= icon('next') ?></span>
+            </a>
+            <?php if (count($accounts) > 1): ?>
+                <div class="role-option__schools" aria-label="เลือกโรงเรียนสำหรับ <?= e($r['title']) ?>">
+                    <?php foreach ($accounts as $sid => $u): ?>
+                        <a class="chip-btn" href="<?= e($enter($u)) ?>"><?= $schools[$sid]['emoji'] ?? '🏫' ?> <?= e($schools[$sid]['shortName'] ?? '') ?></a>
+                    <?php endforeach; ?>
                 </div>
+            <?php endif; ?>
+        </article>
+    <?php endforeach; ?>
+</nav>
 
-                <p class="pkg__tagline"><?= e($pkg['tagline']) ?></p>
+<p class="entry-footer">ข้อมูลทั้งหมดเป็นข้อมูลสมมติสำหรับทดลองใช้งาน · © <?= (int) date('Y') + 543 ?> Mykid</p>
 
-                <p class="pkg__price">
-                    <?php if ($pkg['price']): ?>
-                        <strong><?= e($pkg['price']) ?></strong>
-                    <?php else: ?>
-                        <strong class="pkg__price-note"><?= e($pkg['priceNote']) ?></strong>
-                    <?php endif; ?>
-                    <span><?= e($pkg['priceUnit']) ?></span>
-                </p>
-                <?php if ($featured): ?>
-                    <p class="pkg__includes-title">รวม:</p>
-                    <ul class="checklist">
-                        <?php foreach ($pkg['includes'] as $item): ?>
-                            <li><?= e($item) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php else: ?>
-                    <ul class="pkg__features">
-                        <?php foreach ($pkg['features'] as [$emoji, $label]): ?>
-                            <li><span aria-hidden="true"><?= $emoji ?></span> <?= e($label) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php endif; ?>
-                <div class="pkg__roles"><?= role_chips($pkg['roles']) ?></div>
-
-                <a class="btn <?= $featured ? 'btn--primary' : 'btn--outline' ?> btn--block" href="<?= e($pkg['href']) ?>">
-                    <?= e($pkg['cta']) ?> <span aria-hidden="true">→</span>
-                </a>
-            </article>
-        <?php endforeach; ?>
-    </section>
-</main>
-
-<footer class="site__footer">
-    <p>© <?= (int) date('Y') + 543 ?> Mykid · เวอร์ชันสาธิต (Demo)</p>
-</footer>
-
-<script src="<?= e(root_asset('assets/js/app.js')) ?>"></script>
-</body>
-</html>
+<?php mk_footer(); ?>
