@@ -29,6 +29,10 @@ foreach (store_rows('users') as $u) {
     }
 }
 
+// Parents linked to several children (parentStudents) — extra chip on the Parent card.
+$childCount = array_count_values(array_column(store_rows('parentStudents'), 'user_id'));
+$multiParents = array_values(array_filter(store_rows('users'), fn ($u) => $u['role'] === 'parent' && ($childCount[$u['id']] ?? 0) > 1));
+
 /** Link that enters Package A as this account (logs the current demo user out first). */
 $enter = function (array $u) use ($current): string {
     $query = http_build_query(['role' => $u['role'], 'demo' => $u['phone'], 'go' => 1]);
@@ -79,6 +83,11 @@ mk_header(['id' => 'role-select', 'title' => 'เลือกบทบาท', '
                     <?php foreach ($accounts as $sid => $u): ?>
                         <a class="chip-btn" href="<?= e($enter($u)) ?>"><?= $schools[$sid]['emoji'] ?? '🏫' ?> <?= e($schools[$sid]['shortName'] ?? '') ?></a>
                     <?php endforeach; ?>
+                    <?php if ($role === 'parent'): ?>
+                        <?php foreach ($multiParents as $u): ?>
+                            <a class="chip-btn" href="<?= e($enter($u)) ?>">👨‍👩‍👧 ลูก <?= (int) $childCount[$u['id']] ?> คน</a>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         </article>

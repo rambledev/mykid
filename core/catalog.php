@@ -78,16 +78,21 @@ function mk_catalog(): array
             ['code' => 'teacher',      'label' => 'ข้อความจากครู',     'emoji' => '💬'],
             ['code' => 'alert',        'label' => 'แจ้งเตือนผู้ปกครอง', 'emoji' => '🔔'],
         ],
-        // รับ-ส่ง (Package A): coming → preparing → waiting → completed (core/pickup.php)
+        // รับ-ส่ง (Package A): pending → preparing → ready_for_pickup → completed (core/pickup.php)
+        // label = short status · parent / teacher = explanation shown to that role
         'pickupStatus' => [
-            ['code' => 'coming',    'label' => 'กำลังมารับ',      'emoji' => '🟡', 'tone' => 'warning',
-             'parent' => 'กำลังมารับ', 'teacher' => 'ผู้ปกครองกำลังมารับ'],
-            ['code' => 'preparing', 'label' => 'กำลังพาไปจุดรับ',  'emoji' => '🔵', 'tone' => 'info',
-             'parent' => 'ครูกำลังพานักเรียนไปจุดรับ', 'teacher' => 'ครูกำลังพานักเรียนไปจุดรับ'],
-            ['code' => 'waiting',   'label' => 'ถึงจุดรับแล้ว',    'emoji' => '🟢', 'tone' => 'good',
-             'parent' => 'นักเรียนถึงจุดรับแล้ว', 'teacher' => 'นักเรียนรออยู่ที่จุดรับ'],
-            ['code' => 'completed', 'label' => 'ส่งมอบเรียบร้อย',  'emoji' => '✅', 'tone' => 'neutral',
-             'parent' => 'ส่งมอบนักเรียนเรียบร้อย', 'teacher' => 'ส่งมอบนักเรียนเรียบร้อย'],
+            ['code' => 'pending',          'label' => 'กำลังไปรับลูก',     'emoji' => '🔵', 'tone' => 'info',
+             'parent' => 'ครูได้รับแจ้งแล้ว กรุณารอการเตรียมนักเรียน', 'teacher' => 'ผู้ปกครองกำลังเดินทางมารับ',
+             'explain' => 'ผู้ปกครองแจ้งครูแล้วว่ากำลังเดินทางมารับ'],
+            ['code' => 'preparing',        'label' => 'เตรียมกลับบ้าน',     'emoji' => '🟡', 'tone' => 'warning',
+             'parent' => 'ครูกำลังเตรียมนักเรียนและพาไปยังจุดรับ-ส่ง', 'teacher' => 'กำลังเตรียมนักเรียนไปจุดรับ-ส่ง',
+             'explain' => 'ครูกำลังเตรียมนักเรียนและพาไปยังจุดรับ-ส่ง'],
+            ['code' => 'ready_for_pickup', 'label' => 'ถึงจุดรับส่งแล้ว',   'emoji' => '🟢', 'tone' => 'good',
+             'parent' => 'นักเรียนมาถึงจุดรับ-ส่งแล้ว ผู้ปกครองสามารถมารับนักเรียนได้', 'teacher' => 'นักเรียนมาถึงจุดรับ-ส่งแล้ว ผู้ปกครองสามารถมารับได้',
+             'explain' => 'นักเรียนมาถึงจุดรับ-ส่งแล้ว ผู้ปกครองสามารถมารับนักเรียนได้'],
+            ['code' => 'completed',        'label' => 'ส่งมอบนักเรียนแล้ว', 'emoji' => '✅', 'tone' => 'neutral',
+             'parent' => 'ครูส่งมอบนักเรียนให้ผู้ปกครองเรียบร้อยแล้ว', 'teacher' => 'ส่งมอบนักเรียนแล้ว',
+             'explain' => 'ครูส่งมอบนักเรียนให้ผู้ปกครองเรียบร้อยแล้ว'],
         ],
         'genders' => [
             ['code' => 'm', 'label' => 'ชาย'],

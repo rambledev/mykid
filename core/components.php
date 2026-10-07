@@ -354,8 +354,11 @@ function render_food_summary(array $meals, ?array $intake = null): void
 }
 
 /** Meal cards; $classroomId set → editable (save_meal), null → read only. */
-function render_food_cards(array $meals, ?int $classroomId, ?array $intake = null): void
+function render_food_cards(array $meals, ?int $classroomId, ?array $intake = null, ?array $menuRow = null): void
 {
+    $withPhotos = has_feature('media') && $menuRow !== null;
+    $canAttach = $classroomId && has_feature('media') && can_write_table(current_user(), 'mediaFiles');
+    $photosByMeal = $withPhotos ? group_by(array_values(array_filter(media_for('food', $menuRow['id']), fn ($p) => !empty($p['meal']))), 'meal') : [];
     echo '<div class="meal-grid">';
     foreach ($meals as $m) {
         $level = $intake ? cat_find('intake', $intake['levels'][$m['meal']] ?? null) : null;
@@ -371,11 +374,17 @@ function render_food_cards(array $meals, ?int $classroomId, ?array $intake = nul
             <ul class="meal__items">
                 <?php foreach ($m['items'] ?: ['ยังไม่ได้กำหนดเมนู'] as $item): ?><li><?= e($item) ?></li><?php endforeach; ?>
             </ul>
+            <?php if (!empty($photosByMeal[$m['meal']])): ?>
+                <div class="meal__photos"><?php render_media_strip($photosByMeal[$m['meal']], $m['label']); ?></div>
+            <?php endif; ?>
             <?php if ($level): ?><p class="meal__intake">วันนี้: <?= tone_badge($level) ?></p><?php endif; ?>
             <?php if ($classroomId): ?>
                 <form class="meal__form" data-meal-form hidden>
                     <label class="field"><span class="field__label">รายการอาหาร <small>(1 บรรทัด ต่อ 1 รายการ)</small></span>
                         <textarea class="input" name="items" rows="3" required><?= e(implode("\n", $m['items'])) ?></textarea></label>
+                    <?php if ($canAttach): ?>
+                        <div class="field"><span class="field__label">รูป<?= e($m['label']) ?> <small>(ไม่บังคับ — ถ่ายภาพหรือเลือกรูปได้)</small></span><?= image_picker() ?></div>
+                    <?php endif; ?>
                     <div class="row-actions">
                         <button type="button" class="btn btn--ghost" data-action="cancel-meal">ยกเลิก</button>
                         <button type="submit" class="btn btn--primary"><?= icon('check') ?> บันทึก</button>
@@ -392,13 +401,71 @@ function render_food_cards(array $meals, ?int $classroomId, ?array $intake = nul
  * People
  * ========================================================================= */
 
-function render_student_grid(array $students): void
+/**
+ * Student grid. With $statuses (today's latest per child) the child's status is shown under the name;
+ * with $editable each child is a button that opens the "สถานะรายบุคคล" sheet (teacher home).
+ */
+function render_student_grid(array $students, array $statuses = [], bool $editable = false): void
 {
     echo '<ul class="student-grid">';
     foreach ($students as $s) {
-        echo '<li class="student" title="' . e($s['name']) . '">' . student_avatar($s) . '<span class="student__name">' . e($s['nickname']) . '</span></li>';
+        $st = $statuses[$s['id']] ?? null;
+        $badge = $st ? '<span class="student__status" title="' . e($st['note'] ?? '') . '">📝 ' . e($st['status']) . '</span>' : '';
+        $inner = student_avatar($s) . '<span class="student__name">' . e($s['nickname']) . '</span>' . $badge;
+        if ($editable) {
+            echo '<li><button type="button" class="student student--btn' . ($st ? ' has-status' : '') . '" data-action="student-status-open"'
+                . ' data-student="' . $s['id'] . '" data-name="' . e($s['nickname']) . '"'
+                . ' data-status="' . e($st['status'] ?? '') . '" data-note="' . e($st['note'] ?? '') . '"'
+                . ' data-since="' . e($st ? substr($st['at'], 11, 5) : '') . '"'
+                . ' aria-label="กำหนดสถานะของ' . e($s['nickname']) . '">' . $inner . '</button></li>';
+        } else {
+            echo '<li class="student" title="' . e($s['name']) . '">' . $inner . '</li>';
+        }
     }
     echo '</ul>';
+}
+
+/** Sheet: teacher types an individual status + note for one child (e.g. เด็กป่วย + symptoms). */
+function render_student_status_sheet(): void
+{
+    render_sheet_open('sheet-student-status', 'สถานะรายบุคคล', 'ผู้ปกครองของเด็กคนนี้จะเห็นสถานะและหมายเหตุ');
+    ?>
+    <form class="form" data-student-status-form novalidate>
+        <input type="hidden" name="student_id" value="">
+        <p class="hint" data-student-status-current hidden></p>
+        <label class="field"><span class="field__label">สถานะ <small>(พิมพ์เองได้)</small></span>
+            <input class="input" type="text" name="status" maxlength="60" required list="student-status-suggestions" placeholder="เช่น เด็กป่วย" autocomplete="off"></label>
+        <datalist id="student-status-suggestions">
+            <?php foreach (['เด็กป่วย', 'มีไข้', 'ไม่สบายท้อง', 'ได้รับบาดเจ็บเล็กน้อย', 'งอแง / ร้องไห้', 'กลับบ้านก่อนเวลา', 'หายดีแล้ว'] as $suggestion): ?>
+                <option value="<?= e($suggestion) ?>">
+            <?php endforeach; ?>
+        </datalist>
+        <label class="field"><span class="field__label">หมายเหตุ <small>(ไม่บังคับ)</small></span>
+            <textarea class="input" name="note" rows="3" maxlength="200" placeholder="เช่น ตัวร้อน 37.8°C ให้ยาลดไข้แล้ว แจ้งผู้ปกครองมารับ"></textarea></label>
+        <p class="form__error" data-form-error hidden></p>
+        <div class="row-actions">
+            <button type="button" class="btn btn--ghost" data-action="close-sheet">ยกเลิก</button>
+            <button type="submit" class="btn btn--primary"><?= icon('check') ?> บันทึกสถานะ</button>
+        </div>
+    </form>
+    <?php
+    render_sheet_close();
+}
+
+/** Parent view of today's individual status from the teacher (nothing when there is none). */
+function render_student_status_card(?array $status, string $nickname): void
+{
+    if (!$status) {
+        return;
+    }
+    ?>
+    <section class="card student-status-card" role="status">
+        <?php section_head('📝', 'สถานะของ' . $nickname . 'จากคุณครู'); ?>
+        <p class="student-status-card__status"><?= e($status['status']) ?></p>
+        <?php if (($status['note'] ?? '') !== ''): ?><p class="student-status-card__note"><?= nl2br(e($status['note'])) ?></p><?php endif; ?>
+        <p class="hint">🕘 <?= e(substr($status['at'], 11, 5)) ?> น. · <?= e($status['by'] ?? 'คุณครู') ?></p>
+    </section>
+    <?php
 }
 
 function render_child_card(array $child, array $room, ?array $school, bool $detailed = false): void
@@ -909,14 +976,14 @@ function render_food_photos(?array $menuRow, string $label): void
         return;
     }
     $canUpload = can_write_table(current_user(), 'foodMenus') && can_write_table(current_user(), 'mediaFiles');
-    $media = media_for('food', $menuRow['id']);
+    $media = array_values(array_filter(media_for('food', $menuRow['id']), fn ($m) => empty($m['meal']))); // per-meal photos sit on their meal card
     echo '<div class="food-photos">';
-    echo '<div class="food-photos__head"><strong>📸 รูปอาหาร · ' . e(thai_short_date($menuRow['date'])) . '</strong>'
+    echo '<div class="food-photos__head"><strong>📸 รูปอาหารรวม · ' . e(thai_short_date($menuRow['date'])) . '</strong>'
         . ($canUpload ? '<button type="button" class="btn btn--soft btn--sm" data-action="upload-open" data-owner-type="food" data-owner-id="' . $menuRow['id'] . '" data-title="' . e($label) . '">📷 เพิ่มรูปอาหาร</button>' : '') . '</div>';
     if ($media) {
         render_media_strip($media, $label);
     } else {
-        echo '<p class="hint">ยังไม่มีรูปอาหาร</p>';
+        echo '<p class="hint">' . ($canUpload ? 'ถ่ายรูปรายมื้อได้ที่ปุ่ม “แก้ไข” ของแต่ละมื้อ หรือเพิ่มรูปรวมที่ปุ่มด้านบน' : 'ดูรูปอาหารแต่ละมื้อได้ที่การ์ดของมื้อนั้น') . '</p>';
     }
     echo '</div>';
 }
@@ -953,8 +1020,34 @@ function render_activity_media_history(array $classroomIds): void
     echo '</ol>';
 }
 
+/**
+ * Take a photo (camera on phones) or pick images. Files from both buttons are collected by
+ * core.js (Images picker) and sent with the form — max MEDIA_MAX_FILES, resized before upload.
+ */
+function image_picker(): string
+{
+    return '<div class="image-picker" data-image-picker>'
+        . '<div class="image-picker__buttons">'
+        . '<label class="btn btn--soft btn--sm">📸 ถ่ายภาพ<input type="file" accept="image/*" capture="environment" data-image-source hidden></label>'
+        . '<label class="btn btn--soft btn--sm">🖼️ เลือกรูป<input type="file" accept="image/jpeg,image/png,image/webp" multiple data-image-source hidden></label>'
+        . '</div>'
+        . '<span class="upload-preview" data-upload-preview></span>'
+        . '<small class="field__hint">ระบบย่อรูปให้อัตโนมัติ · เก็บไฟล์ 6 เดือน</small>'
+        . '</div>';
+}
+
 /** Shared sheets: image upload (activity / food) and full-size image viewer. */
 function render_media_sheets(): void
+{
+    if (can_write_table(current_user(), 'mediaFiles')) { // upload sheet only for roles that may upload
+        render_upload_sheet();
+    }
+    render_sheet_open('sheet-media', 'รูปภาพ');
+    echo '<figure class="media-viewer"><img alt="" data-media-img><figcaption data-media-caption></figcaption></figure>';
+    render_sheet_close();
+}
+
+function render_upload_sheet(): void
 {
     render_sheet_open('sheet-upload', 'เพิ่มรูปภาพ', 'ระบบย่อรูปให้อัตโนมัติ · ไฟล์ภาพเก็บไว้ 6 เดือน');
     ?>
@@ -962,11 +1055,10 @@ function render_media_sheets(): void
         <input type="hidden" name="owner_type" value="">
         <input type="hidden" name="owner_id" value="">
         <p class="upload-target" data-upload-title></p>
-        <label class="field">
-            <span class="field__label">เลือกรูปภาพ <small>(JPG / PNG / WebP · สูงสุด <?= MEDIA_MAX_FILES ?> รูป)</small></span>
-            <input class="input" type="file" name="images[]" accept="image/jpeg,image/png,image/webp" multiple required data-image-input>
-        </label>
-        <span class="upload-preview" data-upload-preview></span>
+        <div class="field">
+            <span class="field__label">ถ่ายภาพหรือเลือกรูป <small>(JPG / PNG / WebP · สูงสุด <?= MEDIA_MAX_FILES ?> รูป)</small></span>
+            <?= image_picker() ?>
+        </div>
         <p class="form__error" data-form-error hidden></p>
         <div class="row-actions">
             <button type="button" class="btn btn--ghost" data-action="close-sheet">ยกเลิก</button>
@@ -974,9 +1066,6 @@ function render_media_sheets(): void
         </div>
     </form>
     <?php
-    render_sheet_close();
-    render_sheet_open('sheet-media', 'รูปภาพ');
-    echo '<figure class="media-viewer"><img alt="" data-media-img><figcaption data-media-caption></figcaption></figure>';
     render_sheet_close();
 }
 
@@ -996,4 +1085,98 @@ function render_food_history(array $menuRows): void
         echo '</li>';
     }
     echo '</ol>';
+}
+
+
+/* ============================================================================
+ * รับ-ส่ง: status explanation · In-app notifications list
+ * ========================================================================= */
+
+/** "สถานะการรับนักเรียน" — explains each pickup status in plain Thai (both roles). */
+function render_pickup_legend(): void
+{
+    echo '<section class="card pickup-legend">';
+    section_head('ℹ️', 'สถานะการรับนักเรียน');
+    echo '<ul class="pickup-legend__list">';
+    foreach (mk_catalog()['pickupStatus'] as $st) {
+        echo '<li><span aria-hidden="true">' . $st['emoji'] . '</span><div><strong>' . e($st['label']) . '</strong><p>' . e($st['explain']) . '</p></div></li>';
+    }
+    echo '</ul></section>';
+}
+
+/** Own in-app notifications: ● unread / ○ read. Opening one marks it read (core.js → notification_read). */
+function render_user_notifications(array $user, array $rows): void
+{
+    if (!$rows) {
+        echo empty_state('🔔', 'ยังไม่มีการแจ้งเตือน');
+        return;
+    }
+    echo '<ul class="notif-list">';
+    foreach ($rows as $n) {
+        $unread = $n['read_at'] === null;
+        $when = (substr($n['created_at'], 0, 10) === today() ? 'วันนี้ ' : thai_short_date(substr($n['created_at'], 0, 10)) . ' ') . substr($n['created_at'], 11, 5) . ' น.';
+        echo '<li><button type="button" class="notif-item' . ($unread ? ' is-unread' : '') . '" data-action="notification-open" data-id="' . $n['id'] . '">'
+            . '<span class="notif-item__dot" aria-label="' . ($unread ? 'ยังไม่ได้อ่าน' : 'อ่านแล้ว') . '">' . ($unread ? '●' : '○') . '</span>'
+            . '<span class="notif-item__body"><strong>' . e($n['title']) . '</strong><span>' . e($n['message']) . '</span><time>' . e($when) . '</time></span>'
+            . '</button></li>';
+    }
+    echo '</ul>';
+}
+
+
+/* ============================================================================
+ * ผลงานนักเรียน (Student Work = portfolio rows, one per child; images = mediaFiles owner "portfolio")
+ * ========================================================================= */
+
+/** Images of the given works the session user may open (parents: every linked child — can_view_media). */
+function works_media(array $workIds): array
+{
+    $user = current_user();
+    $ids = array_flip($workIds);
+    $rows = array_filter(store_rows('mediaFiles'), fn ($m) => $m['owner_type'] === 'portfolio' && isset($ids[$m['owner_id']]) && can_view_media($m, $user));
+    return group_by(array_values($rows), 'owner_id');
+}
+
+/** One work card: title, category, date, description, all images (tap → full screen), manage buttons. */
+function render_work_card(array $work, array $media, bool $manage): void
+{
+    $cat = cat_find('portfolioCategories', $work['category'] ?? null);
+    ?>
+    <article class="work-card">
+        <header class="work-card__head">
+            <div>
+                <h3><?= e($work['title']) ?></h3>
+                <p class="work-card__meta"><?= $cat ? $cat['emoji'] . ' ' . e($cat['label']) . ' · ' : '' ?>📅 <?= e(thai_short_date($work['date'])) ?><?= $media ? ' · 🖼️ ' . count($media) . ' รูป' : '' ?></p>
+            </div>
+            <?php if ($manage): ?>
+                <span class="work-card__actions">
+                    <?= btn_edit('portfolio', array_intersect_key($work, array_flip(['id', 'student_id', 'title', 'category', 'date', 'comment']))) ?>
+                    <?= btn_delete('portfolio', $work['id'], $work['title']) ?>
+                </span>
+            <?php endif; ?>
+        </header>
+        <?php if (($work['comment'] ?? '') !== ''): ?><p class="work-card__desc"><?= nl2br(e($work['comment'])) ?></p><?php endif; ?>
+        <?php if ($media): ?>
+            <?php render_media_strip($media, $work['title']); ?>
+        <?php else: ?>
+            <div class="work-card__art"><?= art_svg((int) ($work['art'] ?? 0), $work['title']) ?></div>
+        <?php endif; ?>
+    </article>
+    <?php
+}
+
+/** Works of one child (newest first) as cards, or the empty state. */
+function render_student_works(array $works, bool $manage): void
+{
+    if (!$works) {
+        echo empty_state('🎨', 'ยังไม่มีผลงาน');
+        return;
+    }
+    usort($works, fn ($a, $b) => [$b['date'], $b['id']] <=> [$a['date'], $a['id']]);
+    $media = works_media(array_column($works, 'id'));
+    echo '<div class="work-list">';
+    foreach ($works as $w) {
+        render_work_card($w, $media[$w['id']] ?? [], $manage);
+    }
+    echo '</div>';
 }

@@ -267,3 +267,25 @@ function period_days(string $period): int
 {
     return ['today' => 1, 'week' => 5, 'month' => 22][$period] ?? 1;
 }
+
+/**
+ * Latest individual status of each child TODAY (set by the teacher), keyed by student id.
+ * Scope-filtered: teacher → own classroom, parent → own child.
+ */
+function today_student_statuses(): array
+{
+    if (!can_read_table(current_user(), 'studentStatuses')) {
+        return [];
+    }
+    $latest = [];
+    foreach (scoped('studentStatuses') as $row) {
+        if (($row['date'] ?? '') !== today()) {
+            continue;
+        }
+        $current = $latest[$row['student_id']] ?? null;
+        if (!$current || [$row['at'], $row['id']] > [$current['at'], $current['id']]) {
+            $latest[$row['student_id']] = $row;
+        }
+    }
+    return $latest;
+}

@@ -63,6 +63,9 @@ function render_appbar(array $user): void
                 <strong><?= e($user['school']['name'] ?? 'Mykid Platform · ทุกโรงเรียน') ?></strong>
             </span>
         </a>
+        <?php if (has_notification_menu($user)): ?>
+            <a class="appbar__bell" href="<?= e(url($role['dir'] . '/notifications.php')) ?>" aria-label="แจ้งเตือน"><span aria-hidden="true">🔔</span><?= notif_badge() ?></a>
+        <?php endif; ?>
         <a class="appbar__user" href="<?= e(url($role['dir'] . '/account.php')) ?>" aria-label="บัญชีของฉัน"><span aria-hidden="true"><?= $user['emoji'] ?></span></a>
 
         <!-- Current user + permission scope (always from the session) -->
@@ -84,6 +87,24 @@ function nav_items(string $role): array
     return pkg()['nav'][$role] ?? [];
 }
 
+/**
+ * Red unread badge for the "แจ้งเตือน" menu (in-app notifications). Always rendered (hidden at 0) so
+ * core.js can update every badge on the page from the polling / mark-as-read responses.
+ */
+function notif_badge(): string
+{
+    static $count = null;
+    $count ??= notifications_unread_count(current_user());
+    $text = $count > 99 ? '99+' : (string) $count;
+    return '<span class="notif-badge" data-notif-badge' . ($count ? '' : ' hidden') . ' aria-label="ยังไม่ได้อ่าน ' . $count . ' รายการ">' . $text . '</span>';
+}
+
+/** Does this role have the "แจ้งเตือน" menu? */
+function has_notification_menu(array $user): bool
+{
+    return has_feature('inAppNotifications') && in_array('notifications', array_column(nav_items($user['role']), 0), true);
+}
+
 function render_sidebar(array $user, string $active): void
 {
     ?>
@@ -95,7 +116,7 @@ function render_sidebar(array $user, string $active): void
         <nav class="sidebar__nav">
             <?php foreach (nav_items($user['role']) as [$key, $label, $href, $iconName]): ?>
                 <a class="sidebar__item<?= $key === $active ? ' is-active' : '' ?>" href="<?= e(url($href)) ?>"<?= $key === $active ? ' aria-current="page"' : '' ?>>
-                    <?= icon($iconName) ?><span><?= e($label) ?></span>
+                    <?= icon($iconName) ?><span><?= e($label) ?></span><?= $key === 'notifications' && has_notification_menu($user) ? notif_badge() : '' ?>
                 </a>
             <?php endforeach; ?>
         </nav>
@@ -112,6 +133,8 @@ function render_bottom_nav(array $user, string $active): void
         $items[] = ['menu', 'เมนู', $user['meta']['dir'] . '/menu.php', 'grid', true];
     }
     $mobileKeys = array_column($items, 0);
+    // "แจ้งเตือน" inside the overflow menu → show its badge on "เมนู" instead
+    $badgeKey = has_notification_menu($user) ? (in_array('notifications', $mobileKeys, true) ? 'notifications' : 'menu') : null;
     if ($hasMore && !in_array($active, $mobileKeys, true)) {
         $active = 'menu'; // pages reached through the menu highlight "เมนู"
     }
@@ -119,7 +142,7 @@ function render_bottom_nav(array $user, string $active): void
     <nav class="bottom-nav" aria-label="เมนูหลัก" style="grid-template-columns: repeat(<?= count($items) ?>, 1fr)">
         <?php foreach ($items as [$key, $label, $href, $iconName]): ?>
             <a class="bottom-nav__item<?= $key === $active ? ' is-active' : '' ?>" href="<?= e(url($href)) ?>"<?= $key === $active ? ' aria-current="page"' : '' ?>>
-                <?= icon($iconName) ?><span><?= e($label) ?></span>
+                <?= icon($iconName) ?><span><?= e($label) ?></span><?= $key === $badgeKey ? notif_badge() : '' ?>
             </a>
         <?php endforeach; ?>
     </nav>

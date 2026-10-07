@@ -20,7 +20,7 @@ final class PermissionDeniedException extends RuntimeException
 {
 }
 
-const MK_STORE_SCHEMA = 5; // bump when the seed shape changes (forces a reseed)
+const MK_STORE_SCHEMA = 6; // bump when the seed shape changes (forces a reseed) — 6: parentStudents, userNotifications, new pickup flow
 
 function store_file(): string
 {

@@ -49,6 +49,7 @@ require_once MK_CORE . '/store.php';
 require_once MK_CORE . '/permissions.php';
 require_once MK_CORE . '/cctv.php';
 require_once MK_CORE . '/media.php';
+require_once MK_CORE . '/notifications.php';
 require_once MK_CORE . '/pickup.php';
 require_once MK_CORE . '/auth.php';
 require_once MK_CORE . '/data-filter.php';

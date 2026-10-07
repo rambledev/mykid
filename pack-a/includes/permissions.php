@@ -11,7 +11,7 @@
  */
 declare(strict_types=1);
 
-$studentDaily = ['attendance', 'healthRecords', 'sleepRecords', 'foodIntake', 'portfolio', 'photos', 'stars', 'development', 'pickups', 'mediaFiles'];
+$studentDaily = ['attendance', 'healthRecords', 'sleepRecords', 'foodIntake', 'portfolio', 'photos', 'stars', 'development', 'pickups', 'mediaFiles', 'studentStatuses'];
 
 return [
     'super_admin' => [
@@ -35,7 +35,7 @@ return [
         'read'  => array_merge(['schools', 'classrooms', 'teachers', 'students', 'activities', 'foodMenus', 'statuses',
             'calendarEvents', 'messages', 'notifications', 'settings'], $studentDaily),
         'write' => ['activities', 'foodMenus', 'statuses', 'attendance', 'healthRecords', 'sleepRecords', 'foodIntake',
-            'portfolio', 'photos', 'stars', 'development', 'messages', 'mediaFiles', 'pickups'],
+            'portfolio', 'photos', 'stars', 'development', 'messages', 'mediaFiles', 'pickups', 'studentStatuses'],
     ],
     'parent' => [
         'scope' => 'student',

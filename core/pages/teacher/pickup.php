@@ -6,7 +6,7 @@ $user = current_user();
 $students = array_column(classroom_students($user['classroom_id']), null, 'id');
 
 mk_header(['id' => 'teacher-pickup', 'title' => 'รับ-ส่ง', 'nav' => 'pickup']);
-page_title('🚸', 'รับ-ส่งนักเรียน', thai_date() . ' · ห้อง' . $user['classroom']['name']);
+page_title('🚸', 'รับนักเรียนกลับบ้าน', thai_date() . ' · ห้อง' . $user['classroom']['name']);
 ?>
 <?php $rows = pickup_today_rows(); ?>
 <div data-live id="live-pickup" data-pickup-live data-pickup-signature="<?= e(pickup_signature($rows)) ?>">
@@ -37,9 +37,9 @@ page_title('🚸', 'รับ-ส่งนักเรียน', thai_date() . 
                             <div class="pickup-item__body">
                                 <strong><?= e($s['nickname']) ?></strong>
                                 <small><?= e($s['name']) ?> · ห้อง<?= e($s['classroom']) ?></small>
+                                <p class="pickup-item__msg"><?= e($st['teacher']) ?></p>
                                 <dl class="pickup-item__meta">
                                     <div><dt>แจ้งเมื่อ</dt><dd><?= e(pickup_hm($p['requested_at'])) ?> น. · <?= e($p['parent_name']) ?></dd></div>
-                                    <div><dt>ETA</dt><dd><?= e(pickup_hm($p['eta_at'])) ?> น. (<?= (int) $p['eta_minutes'] ?> นาที)</dd></div>
                                     <?php if ($p['status'] === 'completed'): ?>
                                         <div><dt>ส่งมอบ</dt><dd><?= e(pickup_hm($p['completed_at'])) ?> น. · <?= e($p['completed_by_name'] ?? '') ?></dd></div>
                                     <?php endif; ?>
@@ -60,5 +60,6 @@ page_title('🚸', 'รับ-ส่งนักเรียน', thai_date() . 
         </section>
     <?php endforeach; ?>
 </div>
-<p class="hint hint--card">🔄 หน้านี้อัปเดตอัตโนมัติเมื่อผู้ปกครองแจ้งมารับ</p>
+<?php render_pickup_legend(); ?>
+<p class="hint hint--card">🔄 หน้านี้อัปเดตอัตโนมัติเมื่อผู้ปกครองกด “กำลังไปรับลูก” และมีแจ้งเตือนที่เมนู 🔔</p>
 <?php mk_footer(); ?>

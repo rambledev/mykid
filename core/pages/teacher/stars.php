@@ -5,8 +5,8 @@ declare(strict_types=1);
 $user = current_user();
 $cid = $user['classroom_id'];
 
-mk_header(['id' => 'teacher-stars', 'title' => 'ดาวสะสม', 'nav' => 'stars']);
-page_title('⭐', 'ดาวสะสม', 'ห้อง' . $user['classroom']['name'], btn_add('stars', 'ให้ดาว'));
+mk_header(['id' => 'teacher-stars', 'title' => 'สะสมดาว', 'nav' => 'stars']);
+page_title('⭐', 'สะสมดาว', 'ห้อง' . $user['classroom']['name'], btn_add('stars', 'ให้ดาว'));
 ?>
 <div data-live id="live-stars">
     <?php

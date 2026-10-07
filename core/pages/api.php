@@ -93,9 +93,10 @@ function insert_defaults(string $table, array $row, array $user): array
         'schools'    => $row + ['emoji' => '🏫', 'color' => '#FFF4CC', 'status' => 'active'],
         'users'      => $row + ['classroom_id' => null, 'student_id' => null, 'teacher_id' => null],
         'stars'      => $row + ['date' => today(), 'by' => $user['teacher_id']],
-        'portfolio'  => $row + ['date' => today(), 'art' => random_int(0, 5)],
+        'portfolio'  => ['date' => ($row['date'] ?? '') !== '' ? $row['date'] : today()] + $row + ['art' => random_int(0, 5)],
         'photos'     => $row + ['date' => today(), 'art' => random_int(0, 5), 'emoji' => '📷'],
         'notifications' => $row + ['at' => $now, 'student_id' => null],
+        'studentStatuses' => $row + ['date' => today(), 'at' => $now, 'by' => $user['name'], 'by_user' => $user['id']],
         'attendance', 'healthRecords', 'sleepRecords', 'activities' => $row + ['date' => today()],
         'cameras' => $row + [
             'code' => sprintf('CAM-%02d', count(where(store_rows('cameras'), 'school_id', $row['school_id'])) + 1),
@@ -150,7 +151,8 @@ try {
     $message = '';
     switch ($action) {
         case 'version':
-            json_response(['ok' => true, 'version' => store_state()['version']]);
+            // also the unread in-app notification count (red badge) — polled by every page
+            json_response(['ok' => true, 'version' => store_state()['version'], 'unread' => notifications_unread_count($user)]);
 
         case 'save':
             $table = (string) ($input['table'] ?? '');
@@ -235,7 +237,11 @@ try {
             if (!$files) {
                 throw new DemoValidationException('กรุณาเลือกรูปภาพอย่างน้อย 1 รูป');
             }
-            $ids = attach_uploaded_images($ownerType, $owner, $user, $files);
+            $meal = $ownerType === 'food' && ($input['meal'] ?? '') !== '' ? (string) $input['meal'] : null;
+            if ($meal !== null && !cat_find('meals', $meal)) {
+                throw new DemoValidationException('ไม่พบมื้ออาหารนี้');
+            }
+            $ids = attach_uploaded_images($ownerType, $owner, $user, $files, $meal);
             $message = 'อัปโหลดรูปภาพ ' . count($ids) . ' รูปเรียบร้อยแล้ว';
             break;
 
@@ -287,18 +293,33 @@ try {
             authorize(has_feature('pickup') && can_read_table($user, 'pickups'), 'บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลรับ-ส่ง', ['role' => $user['role']]);
             $rows = pickup_today_rows();
             mk_log('Pickup', 'pickup_status', ['user' => $user['id'], 'rows' => count($rows)]);
-            json_response(['ok' => true, 'signature' => pickup_signature($rows), 'rows' => array_map('pickup_public', $rows), 'version' => store_state()['version']]);
+            json_response(['ok' => true, 'signature' => pickup_signature($rows), 'rows' => array_map('pickup_public', $rows),
+                'version' => store_state()['version'], 'unread' => notifications_unread_count($user)]);
 
         case 'pickup_create':
             authorize(has_feature('pickup'), 'ไม่สามารถดำเนินการได้');
-            $row = pickup_create($user, (int) ($input['student_id'] ?? 0), (int) ($input['eta_minutes'] ?? 0));
-            $message = 'แจ้งครูแล้ว คุณจะถึงโรงเรียนภายใน ' . $row['eta_minutes'] . ' นาที';
+            $row = pickup_create($user, (int) ($input['student_id'] ?? 0));
+            $message = 'แจ้งครูแล้ว ครูจะเตรียม' . (find_row('students', $row['student_id'])['nickname'] ?? 'นักเรียน') . 'กลับบ้าน';
             break;
 
         case 'pickup_update':
             authorize(has_feature('pickup'), 'ไม่สามารถดำเนินการได้');
             $row = pickup_advance($user, (int) ($input['id'] ?? 0), (string) ($input['status'] ?? ''));
             $message = pickup_status_meta($row['status'])['teacher'];
+            break;
+
+        /* ---- In-app notifications (core/notifications.php) — own rows only ---- */
+        case 'notification_read':
+            authorize(has_feature('inAppNotifications'), 'ไม่สามารถดำเนินการได้');
+            $row = notification_mark_read($user, (int) ($input['id'] ?? 0));
+            $link = notification_link($user, $row);
+            // link is relative to the package root (where api.php lives) — the browser resolves it against apiUrl
+            json_response(['ok' => true, 'unread' => notifications_unread_count($user), 'link' => $link, 'version' => store_state()['version']]);
+
+        case 'notification_read_all':
+            authorize(has_feature('inAppNotifications'), 'ไม่สามารถดำเนินการได้');
+            $marked = notification_mark_all_read($user);
+            $message = $marked ? 'ทำเครื่องหมายอ่านแล้ว ' . $marked . ' รายการ' : 'ไม่มีการแจ้งเตือนที่ยังไม่อ่าน';
             break;
 
         case 'set_status':
@@ -317,9 +338,22 @@ try {
             if (!cat_find('meals', $meal)) {
                 throw new DemoValidationException('ไม่พบมื้ออาหารนี้');
             }
-            $items = array_values(array_filter(array_map(fn ($i) => mb_substr(trim((string) $i), 0, 60), (array) ($input['items'] ?? [])), fn ($i) => $i !== ''));
+            $rawItems = $input['items'] ?? [];
+            if (is_string($rawItems)) { // multipart (photos attached): items arrive as a JSON string
+                $rawItems = json_decode($rawItems, true) ?: [];
+            }
+            $items = array_values(array_filter(array_map(fn ($i) => mb_substr(trim((string) $i), 0, 60), (array) $rawItems), fn ($i) => $i !== ''));
             if (!$items) {
                 throw new DemoValidationException('กรุณากรอกรายการอาหารอย่างน้อย 1 รายการ');
+            }
+            // Food photos taken / picked in the meal form: check permission + every file BEFORE saving the menu.
+            $mealPhotos = uploaded_files();
+            if ($mealPhotos) {
+                authorize(has_feature('media') && can_write_table($user, 'mediaFiles'), 'บัญชีนี้ไม่มีสิทธิ์อัปโหลดรูปภาพ', ['role' => $user['role']]);
+                if (count($mealPhotos) > MEDIA_MAX_FILES) {
+                    throw new DemoValidationException('อัปโหลดได้ครั้งละไม่เกิน ' . MEDIA_MAX_FILES . ' รูป');
+                }
+                array_map('validate_image_upload', $mealPhotos);
             }
             $scope = apply_write_scope($user, 'foodMenus', ['classroom_id' => $input['classroom_id'] ?? null]);
             store_mutate(function (array &$state) use ($scope, $meal, $items) {
@@ -333,6 +367,17 @@ try {
                 $state['tables']['foodMenus'][] = ['id' => $state['nextId']++, 'date' => today()] + $scope + [$meal => array_slice($items, 0, 6)];
             });
             $message = 'บันทึกเมนูอาหารเรียบร้อยแล้ว';
+            if ($mealPhotos) {
+                $menu = null;
+                foreach (store_rows('foodMenus') as $row) {
+                    if ($row['classroom_id'] === $scope['classroom_id'] && ($row['date'] ?? '') === today()) {
+                        $menu = $row;
+                    }
+                }
+                authorize($menu !== null && row_in_scope($user, 'foodMenus', $menu), 'ไม่มีสิทธิ์อัปโหลดรูปภาพให้เมนูนี้', ['classroom_id' => $scope['classroom_id']]);
+                attach_uploaded_images('food', $menu, $user, $mealPhotos, $meal);
+                $message .= ' พร้อมรูปอาหาร ' . count($mealPhotos) . ' รูป';
+            }
             break;
 
         case 'save_intake':
@@ -380,7 +425,7 @@ try {
     }
 
     mk_log('Api', 'request END', ['action' => $action, 'user' => $user['id'], 'version' => store_state()['version']]);
-    json_response(['ok' => true, 'message' => $message, 'version' => store_state()['version']]);
+    json_response(['ok' => true, 'message' => $message, 'version' => store_state()['version'], 'unread' => notifications_unread_count($user)]);
 } catch (PermissionDeniedException $ex) {
     mk_log('Api', 'permission ERROR', ['action' => $action, 'user' => $user['id'], 'role' => $user['role'], 'error' => $ex->getMessage(), 'input' => $input]);
     json_response(['ok' => false, 'message' => $ex->getMessage()], 403);

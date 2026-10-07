@@ -182,6 +182,7 @@ function seed_build_tables(array $schools, array $users, ?array $extraActivity =
     }
     $t['statuses'] = array_reverse($t['statuses']); // newest first
     $t['users'] = $users;
+    seed_parent_students($t, $nextId);
 
     $classroomsById = array_column($t['classrooms'], null, 'id');
     $teachersByRoom = [];
@@ -215,6 +216,7 @@ function seed_build_tables(array $schools, array $users, ?array $extraActivity =
     seed_messages($t, $classroomsById, $teachersByRoom, $nextId);
     seed_cameras($t, $nextId);
     seed_pickups_day($t, $today, $nextId);
+    seed_notifications($t, $nextId);
     if (has_feature('media')) {
         seed_media($t, $nextId); // demo image files + metadata (core/media.php)
     }
@@ -254,7 +256,8 @@ function seed_student_day(array &$t, array $st, ?array $teacher, int &$nextId): 
 
     $works = [['art', 'ภาพระบายสีครอบครัวของฉัน'], ['art', 'ปั้นดินน้ำมันรูปสัตว์'], ['language', 'ฝึกเขียนตัวอักษร ก–ฮ'],
         ['math', 'นับและจับคู่ตัวเลข'], ['science', 'ทดลองปลูกถั่วงอก'], ['music', 'ร้องเพลงช้างหน้าชั้นเรียน']];
-    for ($i = 0; $i < 3; $i++) {
+    $workCount = $sid % 10 === 0 ? 0 : 3; // every 10th child has no work yet (ผลงานนักเรียน empty state)
+    for ($i = 0; $i < $workCount; $i++) {
         [$cat, $title] = $works[(mk_rand($sid, 'work') + $i * 2) % 6];
         $t['portfolio'][] = ['id' => $nextId++] + $base + ['date' => date('Y-m-d', strtotime('-' . ($i * 6 + 1) . ' day')),
             'title' => $title, 'category' => $cat, 'art' => ($sid + $i) % 6,
@@ -543,9 +546,10 @@ function seed_cameras(array &$t, int &$nextId): void
  * ------------------------------------------------------------------------ */
 
 /**
- * Today's mock pickups: per classroom, 4 children WITHOUT a demo parent account get one
- * request each in coming / preparing / waiting / completed. Children of demo parents get none,
- * so "แจ้งมารับ" can be tried from the parent side. Times are relative to the seed time.
+ * Today's mock pickups (new flow — no ETA): per classroom, 4 children WITHOUT a demo parent account get
+ * one request each in pending / preparing / ready_for_pickup / completed. The multi-child demo parent's
+ * first child is ready_for_pickup (the second has no request, so "กำลังไปรับลูก" can be tried). Children
+ * of the other demo parents get none. Times are relative to the seed time.
  */
 function seed_pickups_day(array &$t, string $date, int &$nextId): void
 {
@@ -554,46 +558,98 @@ function seed_pickups_day(array &$t, string $date, int &$nextId): void
     }
     mk_log('Seed', 'seed_pickups_day START', ['date' => $date]);
     $t['pickups'] ??= [];
-    $demoChildren = [];
+    $demoChildren = array_flip(array_column($t['parentStudents'] ?? [], 'student_id'));
     $teacherUsers = [];
     foreach ($t['users'] as $u) {
-        if ($u['role'] === 'parent' && $u['student_id']) {
-            $demoChildren[$u['student_id']] = true;
-        }
         if ($u['role'] === 'teacher' && $u['classroom_id']) {
             $teacherUsers[$u['classroom_id']] ??= $u;
         }
     }
     $now = time();
-    $at = fn (int $minutesAgo) => date('Y-m-d H:i:s', $now - $minutesAgo * 60);
-    // [status, requested min ago, eta, preparing ago, waiting ago, completed ago]
-    $plan = [
-        ['coming', 3, 15, null, null, null],
-        ['preparing', 8, 10, 2, null, null],
-        ['waiting', 12, 10, 6, 1, null],
-        ['completed', 45, 15, 33, 30, 25],
-    ];
+    $at = fn (?int $minutesAgo) => $minutesAgo === null ? null : date('Y-m-d H:i:s', $now - $minutesAgo * 60);
+    $row = function (array $s, string $status, int $req, ?int $prep, ?int $ready, ?int $done, string $parentName, ?int $parentId) use (&$nextId, $date, $at, $teacherUsers): array {
+        $teacher = $teacherUsers[$s['classroom_id']] ?? null;
+        return ['id' => $nextId++, 'school_id' => $s['school_id'], 'classroom_id' => $s['classroom_id'], 'student_id' => $s['id'],
+            'date' => $date, 'status' => $status, 'parent_id' => $parentId, 'parent_name' => $parentName,
+            'requested_at' => $at($req), 'preparing_at' => $at($prep), 'ready_at' => $at($ready), 'completed_at' => $at($done),
+            'completed_by' => $done === null ? null : ($teacher['id'] ?? null),
+            'completed_by_name' => $done === null ? null : ($teacher['name'] ?? 'คุณครู')];
+    };
+    // [status, requested ago, preparing ago, ready ago, completed ago] (minutes)
+    $plan = [['pending', 3, null, null, null], ['preparing', 8, 2, null, null], ['ready_for_pickup', 12, 6, 1, null], ['completed', 45, 33, 30, 25]];
     $added = 0;
     foreach ($t['classrooms'] as $room) {
         $kids = array_values(array_filter($t['students'], fn ($s) => $s['classroom_id'] === $room['id'] && !isset($demoChildren[$s['id']])));
-        $teacher = $teacherUsers[$room['id']] ?? null;
-        foreach ($plan as $i => [$status, $req, $eta, $prep, $wait, $done]) {
-            $s = $kids[$i * 3] ?? null; // spread over the class list
-            if (!$s) {
-                continue;
+        foreach ($plan as $i => [$status, $req, $prep, $ready, $done]) {
+            if ($s = $kids[$i * 3] ?? null) { // spread over the class list
+                $t['pickups'][] = $row($s, $status, $req, $prep, $ready, $done, 'คุณ' . ($s['parentRelation'] ?? 'แม่'), null);
+                $added++;
             }
-            $t['pickups'][] = ['id' => $nextId++, 'school_id' => $s['school_id'], 'classroom_id' => $s['classroom_id'],
-                'student_id' => $s['id'], 'date' => $date, 'status' => $status,
-                'parent_id' => null, 'parent_name' => 'คุณ' . ($s['parentRelation'] ?? 'แม่'),
-                'eta_minutes' => $eta, 'requested_at' => $at($req), 'eta_at' => $at($req - $eta),
-                'preparing_at' => $prep === null ? null : $at($prep), 'waiting_at' => $wait === null ? null : $at($wait),
-                'completed_at' => $done === null ? null : $at($done),
-                'completed_by' => $done === null ? null : ($teacher['id'] ?? null),
-                'completed_by_name' => $done === null ? null : ($teacher['name'] ?? 'คุณครู')];
-            $added++;
+        }
+    }
+    foreach ($t['users'] as $u) { // multi-child demo parent: first child already at the pickup point
+        if ($u['role'] === 'parent' && count($u['children'] ?? []) > 1) {
+            $first = array_values(array_filter($t['students'], fn ($s) => $s['id'] === $u['children'][0]))[0] ?? null;
+            if ($first) {
+                $t['pickups'][] = $row($first, 'ready_for_pickup', 15, 9, 2, null, 'คุณ' . ($u['relation'] ?? 'แม่'), $u['id']);
+                $added++;
+            }
         }
     }
     mk_log('Seed', 'seed_pickups_day END', ['added' => $added]);
+}
+
+/** parentStudents: one row per parent ↔ child link (the multi-child demo parent has two). */
+function seed_parent_students(array &$t, int &$nextId): void
+{
+    $t['parentStudents'] = [];
+    foreach ($t['users'] as $u) {
+        if ($u['role'] !== 'parent') {
+            continue;
+        }
+        foreach ($u['children'] ?? [$u['student_id']] as $sid) {
+            $t['parentStudents'][] = ['id' => $nextId++, 'school_id' => $u['school_id'], 'user_id' => $u['id'], 'student_id' => $sid,
+                'relation' => $u['relation'] ?? 'แม่'];
+        }
+    }
+}
+
+/**
+ * Demo in-app notifications: what today's pickups would have produced + a few read / unread items
+ * for every demo teacher and parent, so each badge starts with a meaningful unread count.
+ */
+function seed_notifications(array &$t, int &$nextId): void
+{
+    if (!has_feature('inAppNotifications')) {
+        return;
+    }
+    $t['userNotifications'] = [];
+    $students = array_column($t['students'], null, 'id');
+    $day = today();
+    foreach ($t['pickups'] ?? [] as $p) {
+        $kid = $students[$p['student_id']]['nickname'] ?? '';
+        foreach (classroom_teacher_users($t['users'], $p['classroom_id']) as $teacher) {
+            $t['userNotifications'][] = notification_row($nextId++, $teacher, 'pickup', '🔵 ผู้ปกครองกำลังเดินทางมารับ' . $kid,
+                'กรุณาเตรียม' . $kid . 'กลับบ้าน', 'pickup', $p['id'], $p['requested_at'], $p['status'] === 'pending' ? null : $p['preparing_at']);
+        }
+        foreach (student_parent_users($t, $p['student_id']) as $parent) {
+            foreach ([['preparing', 'preparing_at', '🟡 เตรียมกลับบ้าน · ', 'ครูกำลังเตรียม' . $kid . 'และพาไปยังจุดรับ-ส่ง'],
+                      ['ready_for_pickup', 'ready_at', '🟢 ถึงจุดรับส่งแล้ว · ', $kid . 'มาถึงจุดรับ-ส่งแล้ว ผู้ปกครองสามารถมารับได้']] as [$step, $col, $title, $msg]) {
+                if ($p[$col]) {
+                    $t['userNotifications'][] = notification_row($nextId++, $parent, 'pickup', $title . $kid, $msg, 'pickup', $p['id'], $p[$col], $step === 'preparing' ? $p['ready_at'] : null);
+                }
+            }
+        }
+    }
+    foreach ($t['users'] as $u) {
+        if (!in_array($u['role'], ['teacher', 'parent'], true)) {
+            continue;
+        }
+        $t['userNotifications'][] = notification_row($nextId++, $u, 'announcement', '📢 ประชุมผู้ปกครองวันศุกร์นี้',
+            'ขอเชิญผู้ปกครองร่วมประชุมเวลา 15:00 น. ที่ห้องประชุมโรงเรียน', null, null, "$day 08:10:00", null);
+        $t['userNotifications'][] = notification_row($nextId++, $u, 'activity', '🎨 อัปเดตกิจกรรมวันนี้',
+            'มีรูปภาพกิจกรรมศิลปะใหม่ของห้องเรียน', null, null, date('Y-m-d', strtotime('-1 day')) . ' 14:30:00', date('Y-m-d', strtotime('-1 day')) . ' 16:00:00');
+    }
 }
 
 /**

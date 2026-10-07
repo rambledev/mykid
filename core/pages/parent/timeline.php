@@ -21,10 +21,15 @@ $sleep = student_today('sleepRecords', $child['id']);
 if ($sleep && $sleep['start']) {
     $events[] = ['time' => $sleep['start'], 'icon' => '😴', 'title' => $child['nickname'] . 'เริ่มนอนกลางวัน', 'detail' => $sleep['end'] ? 'ตื่น ' . $sleep['end'] . ' น. · นอน ' . thai_duration(minutes_between($sleep['start'], $sleep['end'])) : '', 'kind' => 'child'];
 }
+foreach (has_feature('studentStatus') ? scoped('studentStatuses') : [] as $st) {
+    if ($st['student_id'] === $child['id'] && ($st['date'] ?? '') === today()) {
+        $events[] = ['time' => substr($st['at'], 11, 5), 'icon' => '📝', 'title' => 'คุณครูบันทึก: ' . $st['status'], 'detail' => $st['note'] ?? '', 'kind' => 'child'];
+    }
+}
 $pickup = has_feature('pickup') ? pickup_for_student($child['id']) : null;
 if ($pickup) {
     $meta = pickup_status_meta($pickup['status']);
-    $events[] = ['time' => pickup_hm($pickup['requested_at']), 'icon' => '🚸', 'title' => 'แจ้งมารับ (ETA ' . pickup_hm($pickup['eta_at']) . ' น.)', 'detail' => $meta['emoji'] . ' ' . $meta['parent'], 'kind' => 'child'];
+    $events[] = ['time' => pickup_hm($pickup['requested_at']), 'icon' => '🚸', 'title' => 'รับ-ส่ง: ' . $meta['emoji'] . ' ' . $meta['label'], 'detail' => $meta['parent'], 'kind' => 'child'];
 }
 usort($events, fn ($a, $b) => strcmp($a['time'], $b['time']));
 

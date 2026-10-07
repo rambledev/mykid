@@ -79,7 +79,15 @@ function media_for(string $ownerType, int $ownerId): array
 
 function can_view_media(array $media, array $user): bool
 {
-    return can_read_table($user, 'mediaFiles') && row_in_scope($user, 'mediaFiles', $media);
+    if (!can_read_table($user, 'mediaFiles')) {
+        return false;
+    }
+    // A parent with several children may also open the work images of their OTHER children
+    // (relation parentStudents, same school) — never images of children they are not linked to.
+    if ($user['role'] === 'parent' && $media['owner_type'] === 'portfolio' && $media['student_id'] !== null) {
+        return in_array($media['student_id'], $user['student_ids'] ?? [], true) && $media['school_id'] === $user['school_id'];
+    }
+    return row_in_scope($user, 'mediaFiles', $media);
 }
 
 function human_bytes(int $bytes): string
@@ -228,7 +236,7 @@ function write_media_file(int $schoolId, string $ext, string $bytes): string
  * Store uploaded images for an owner row the caller has ALREADY authorised.
  * $owner supplies the scope (school_id / classroom_id / student_id). Returns inserted ids.
  */
-function attach_uploaded_images(string $ownerType, array $owner, array $user, array $files): array
+function attach_uploaded_images(string $ownerType, array $owner, array $user, array $files, ?string $meal = null): array
 {
     if (count($files) > MEDIA_MAX_FILES) {
         throw new DemoValidationException('อัปโหลดได้ครั้งละไม่เกิน ' . MEDIA_MAX_FILES . ' รูป');
@@ -260,6 +268,9 @@ function attach_uploaded_images(string $ownerType, array $owner, array $user, ar
             'image_status' => 'available',
             'uploaded_by'  => $user['id'],
         ];
+        if ($ownerType === 'food' && $meal !== null) {
+            $row['meal'] = $meal; // which meal of the day the photo shows (breakfast, lunch, ...)
+        }
         authorize(row_in_scope($user, 'mediaFiles', $row), 'ไม่มีสิทธิ์อัปโหลดรูปภาพนี้', ['owner' => $ownerType, 'id' => $owner['id']]);
         $ids[] = store_insert('mediaFiles', $row);
         mk_log('Media', 'image stored', ['owner' => $ownerType, 'owner_id' => $owner['id'], 'bytes' => strlen($bytes), 'size' => "{$width}x{$height}"]);
@@ -397,11 +408,17 @@ function seed_media(array &$t, int &$nextId): void
             }
         }
 
-        $kids = array_slice(array_values(array_filter($t['students'], fn ($s) => $s['classroom_id'] === $cid)), 0, 3);
+        // Children with work images: the first 3 of each room + children of multi-child demo parents.
+        $siblings = array_merge(...array_map(fn ($u) => count($u['children'] ?? []) > 1 ? $u['children'] : [], $t['users']));
+        $roomKids = array_values(array_filter($t['students'], fn ($s) => $s['classroom_id'] === $cid));
+        $kids = array_merge(array_slice($roomKids, 0, 3), array_values(array_filter($roomKids, fn ($s) => in_array($s['id'], $siblings, true))));
         foreach ($kids as $i => $kid) {
             $works = array_values(array_filter($t['portfolio'], fn ($p) => $p['student_id'] === $kid['id']));
             foreach (array_slice($works, 0, 2) as $j => $work) {
                 $add($work, 'portfolio', $at($work['date'], '15:00:00'), "work-{$kid['id']}-$j", $kid['id'] + $j, $kid['id']);
+                if ($j === 0) { // the first work of each child has several images (gallery demo)
+                    $add($work, 'portfolio', $at($work['date'], '15:01:00'), "work-{$kid['id']}-{$j}b", $kid['id'] + 4, $kid['id']);
+                }
             }
             $oldWork = ['id' => $nextId++, 'school_id' => $kid['school_id'], 'classroom_id' => $cid, 'student_id' => $kid['id'],
                 'date' => $old, 'title' => 'ภาพวาดบ้านของฉัน (ภาคเรียนที่แล้ว)', 'category' => 'art', 'art' => $kid['id'] % 6,

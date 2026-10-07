@@ -66,8 +66,9 @@ mk_header(['id' => 'teacher-home', 'title' => 'หน้าหลักครู
     <?php endif; ?>
 
     <section class="card dash-grid__wide">
-        <?php section_head('🧒', 'นักเรียน', '<span class="count-badge">' . count($students) . ' คน</span>', $room['name']); ?>
-        <?php render_student_grid($students); ?>
+        <?php $canSetStatus = has_feature('studentStatus') && can_write_table($user, 'studentStatuses'); ?>
+        <?php section_head('🧒', 'นักเรียน', '<span class="count-badge">' . count($students) . ' คน</span>', $room['name'] . ($canSetStatus ? ' · กดที่ชื่อเพื่อกำหนดสถานะรายบุคคล' : '')); ?>
+        <?php render_student_grid($students, $canSetStatus ? today_student_statuses() : [], $canSetStatus); ?>
     </section>
 
     <?php render_status_sheet($status); ?>
@@ -75,4 +76,7 @@ mk_header(['id' => 'teacher-home', 'title' => 'หน้าหลักครู
 
 <?php
 render_form_sheet('activities', 'เพิ่มกิจกรรม', ['classroom_id']);
+if (has_feature('studentStatus') && can_write_table($user, 'studentStatuses')) {
+    render_student_status_sheet();
+}
 mk_footer();

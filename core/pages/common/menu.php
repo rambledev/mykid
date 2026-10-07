@@ -11,7 +11,7 @@ page_title('🧩', 'เมนูทั้งหมด', $user['scopeLabel']);
     <?php foreach (nav_items($user['role']) as [$key, $label, $href, $iconName]): ?>
         <a class="menu-grid__item" href="<?= e(url($href)) ?>">
             <span class="menu-grid__icon"><?= icon($iconName) ?></span>
-            <span><?= e($label) ?></span>
+            <span><?= e($label) ?></span><?= $key === 'notifications' && has_notification_menu($user) ? notif_badge() : '' ?>
         </a>
     <?php endforeach; ?>
 </nav>

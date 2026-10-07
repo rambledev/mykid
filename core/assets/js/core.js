@@ -94,6 +94,7 @@
       throw new UserError(data.message || 'กรุณาลองใหม่อีกครั้ง');
     }
     if (data.version) CFG.version = data.version;
+    if (typeof data.unread === 'number') Notifications.setBadges(data.unread);
     if (!quiet) Log.end('api', { action, version: data.version });
     return data;
   }
@@ -262,17 +263,20 @@
   function toggleMealEdit(button, editing) {
     const card = button.closest('[data-meal]');
     const form = $('[data-meal-form]', card);
-    if (!editing) form.reset();
+    if (!editing) { form.reset(); Picker.reset(form); }
     card.classList.toggle('is-editing', editing);
     form.hidden = !editing;
     if (editing) form.elements.items.focus();
   }
 
-  function saveMeal(form) {
+  async function saveMeal(form) {
     const card = form.closest('[data-meal]');
     const items = form.elements.items.value.split('\n').map((s) => s.trim()).filter(Boolean);
     if (!items.length) { toast('กรุณากรอกรายการอาหารอย่างน้อย 1 รายการ', 'error'); return; }
-    runAction(form.querySelector('[type="submit"]'), 'save_meal', { meal: card.dataset.meal, classroom_id: Number(card.dataset.classroom), items });
+    const picked = Picker.files(form);
+    const files = picked.length ? await prepareImages(picked) : null; // food photos taken / picked in this meal
+    if (picked.length && !files) return;
+    runAction(form.querySelector('[type="submit"]'), 'save_meal', { meal: card.dataset.meal, classroom_id: Number(card.dataset.classroom), items }, null, files);
   }
 
   let activeThread = null;
@@ -467,7 +471,7 @@
   }
 
   function initPolling() {
-    if (!CFG.poll || !$('[data-live]')) return;
+    if (!CFG.poll) return; // also keeps the notification badge fresh on pages without live regions
     Log.info('initPolling', 'enabled', { intervalMs: POLL_INTERVAL_MS, version: CFG.version });
     setInterval(async () => {
       const typing = document.activeElement && document.activeElement.matches('input, textarea, select');
@@ -475,7 +479,7 @@
       try {
         const before = CFG.version;
         const data = await api('version', {}, { quiet: true });
-        if (data.version !== before) {
+        if (data.version !== before && $('[data-live]')) {
           Log.info('initPolling', 'changed', { before, after: data.version });
           await refreshLive();
           toast('มีข้อมูลอัปเดตใหม่', 'info');
@@ -490,6 +494,36 @@
    * รับ-ส่ง (pickup): parent notifies ETA, teacher moves the status, both pages poll
    * the dedicated pickup_status API (no WebSocket, no location of any kind).
    * --------------------------------------------------------------------- */
+  /**
+   * In-app notifications: red badge on every "แจ้งเตือน" menu + mark as read. No push of any kind —
+   * the unread count comes back with polling ("version", "pickup_status") and every API response.
+   */
+  const Notifications = {
+    setBadges(count) {
+      $$('[data-notif-badge]').forEach((b) => {
+        b.hidden = count <= 0;
+        b.textContent = count > 99 ? '99+' : String(count);
+        b.setAttribute('aria-label', `ยังไม่ได้อ่าน ${count} รายการ`);
+      });
+    },
+
+    async open(button) {
+      try {
+        const data = await api('notification_read', { id: Number(button.dataset.id) });
+        button.classList.remove('is-unread');
+        const dot = $('.notif-item__dot', button);
+        if (dot) { dot.textContent = '○'; dot.setAttribute('aria-label', 'อ่านแล้ว'); }
+        if (data.link) window.location.href = new URL(data.link, new URL(CFG.apiUrl, window.location.href)).href;
+      } catch (error) {
+        toast(error instanceof UserError ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'error');
+      }
+    },
+
+    readAll(button) {
+      return runAction(button, 'notification_read_all', {});
+    },
+  };
+
   const Pickup = {
     signature: null,
     statuses: {},
@@ -526,34 +560,17 @@
       Log.end('Pickup.init', { intervalMs: PICKUP_POLL_MS });
     },
 
-    open(button) {
-      const sheet = openSheet('sheet-pickup');
-      if (!sheet) return;
-      const form = $('[data-pickup-form]', sheet);
-      form.reset();
-      form.elements.student_id.value = button.dataset.student;
-      $('.sheet__title', sheet).textContent = `แจ้งมารับ${button.dataset.name}`;
-      $('[data-form-error]', form).hidden = true;
-    },
-
-    async create(form) {
-      const eta = form.querySelector('input[name="eta_minutes"]:checked');
-      const error = $('[data-form-error]', form);
-      if (!eta) {
-        error.textContent = 'กรุณาเลือกเวลาที่จะถึงโรงเรียน';
-        error.hidden = false;
-        return;
-      }
-      const sheet = form.closest('.sheet');
-      const ok = await runAction($('[type="submit"]', form), 'pickup_create',
-        { student_id: Number(form.elements.student_id.value), eta_minutes: Number(eta.value) }, () => closeSheet(sheet));
-      if (ok) await this.sync(false);
+    /** Parent: one tap "กำลังไปรับลูก" for ONE child (no time / ETA). */
+    async go(button) {
+      const ok = await confirmDialog({ title: `กำลังไปรับ${button.dataset.name}?`, message: 'ครูจะได้รับแจ้งว่าคุณกำลังเดินทางมารับนักเรียน', icon: '🚗', okLabel: 'กำลังไปรับลูก' });
+      if (!ok) return;
+      if (await runAction(button, 'pickup_create', { student_id: Number(button.dataset.student) })) await this.sync(false);
     },
 
     async update(button) {
       const { id, status, name } = button.dataset;
       if (status === 'completed') {
-        const ok = await confirmDialog({ title: `ส่งมอบ${name}เรียบร้อย?`, message: 'ยืนยันว่าผู้ปกครองรับนักเรียนจากจุดรับแล้ว', icon: '🤝', okLabel: 'ส่งมอบเรียบร้อย' });
+        const ok = await confirmDialog({ title: `ส่งมอบ${name}แล้ว?`, message: 'ยืนยันว่าผู้ปกครองรับนักเรียนจากจุดรับ-ส่งแล้ว', icon: '🤝', okLabel: 'ส่งมอบนักเรียนแล้ว' });
         if (!ok) return;
       }
       if (await runAction(button, 'pickup_update', { id: Number(id), status })) await this.sync(false);
@@ -848,6 +865,108 @@
     }
   }
 
+  /**
+   * Image picker: "📸 ถ่ายภาพ" (camera) + "🖼️ เลือกรูป" inputs feed one list per picker,
+   * so a teacher can shoot several photos one by one. Files stay in memory until the form is sent.
+   */
+  const Picker = {
+    lists: new WeakMap(),
+
+    files(form) {
+      const picker = form && $('[data-image-picker]', form);
+      return picker ? (this.lists.get(picker) || []) : [];
+    },
+
+    add(input) {
+      const picker = input.closest('[data-image-picker]');
+      const list = this.lists.get(picker) || [];
+      const incoming = Array.from(input.files);
+      input.value = ''; // the same camera input can be used again
+      const bad = incoming.filter((f) => !IMAGE_TYPES.includes(f.type));
+      if (bad.length) toast('รองรับเฉพาะไฟล์รูปภาพ JPG, PNG หรือ WebP', 'error');
+      const merged = list.concat(incoming.filter((f) => IMAGE_TYPES.includes(f.type)));
+      if (merged.length > IMAGE_MAX_FILES) toast(`แนบได้ไม่เกิน ${IMAGE_MAX_FILES} รูปต่อครั้ง`, 'error');
+      this.lists.set(picker, merged.slice(0, IMAGE_MAX_FILES));
+      Log.info('Picker.add', 'files', { added: incoming.length, total: this.lists.get(picker).length });
+      this.render(picker);
+    },
+
+    remove(button) {
+      const picker = button.closest('[data-image-picker]');
+      const list = (this.lists.get(picker) || []).filter((_, i) => i !== Number(button.dataset.index));
+      this.lists.set(picker, list);
+      this.render(picker);
+    },
+
+    reset(form) {
+      const picker = form && $('[data-image-picker]', form);
+      if (!picker) return;
+      this.lists.set(picker, []);
+      this.render(picker);
+    },
+
+    render(picker) {
+      const box = $('[data-upload-preview]', picker);
+      box.querySelectorAll('img').forEach((img) => URL.revokeObjectURL(img.src));
+      box.innerHTML = '';
+      const list = this.lists.get(picker) || [];
+      list.forEach((f, i) => {
+        const tile = document.createElement('span');
+        tile.className = 'upload-preview__item';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.alt = `รูปที่ ${i + 1}`;
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'upload-preview__remove';
+        del.dataset.action = 'image-remove';
+        del.dataset.index = String(i);
+        del.setAttribute('aria-label', `เอารูปที่ ${i + 1} ออก`);
+        del.textContent = '×';
+        tile.append(img, del);
+        box.appendChild(tile);
+      });
+      if (list.length) {
+        const note = document.createElement('small');
+        note.textContent = `แนบแล้ว ${list.length} รูป`;
+        box.appendChild(note);
+      }
+    },
+  };
+
+  /**
+   * Individual student status (teacher home): tap a child → type a status + note → saved as a new
+   * studentStatuses row (generic "save" API, scope enforced on the server).
+   */
+  const StudentStatus = {
+    open(button) {
+      const sheet = openSheet('sheet-student-status');
+      if (!sheet) return;
+      const form = $('[data-student-status-form]', sheet);
+      form.reset();
+      form.elements.student_id.value = button.dataset.student;
+      form.elements.status.value = button.dataset.status || '';
+      form.elements.note.value = button.dataset.note || '';
+      $('.sheet__title', sheet).textContent = `สถานะของ${button.dataset.name}`;
+      const current = $('[data-student-status-current]', form);
+      current.hidden = !button.dataset.status;
+      current.textContent = button.dataset.status ? `สถานะล่าสุดวันนี้: ${button.dataset.status} (${button.dataset.since} น.) — บันทึกใหม่จะแทนที่การแสดงผล ประวัติยังเก็บไว้` : '';
+      $('[data-form-error]', form).hidden = true;
+      setTimeout(() => form.elements.status.focus(), 80);
+      Log.info('StudentStatus.open', 'student', { id: button.dataset.student });
+    },
+
+    async save(form) {
+      const status = form.elements.status.value.trim();
+      const note = form.elements.note.value.trim();
+      const error = $('[data-form-error]', form);
+      if (!status) { error.textContent = 'กรุณาพิมพ์สถานะ'; error.hidden = false; form.elements.status.focus(); return; }
+      const sheet = form.closest('.sheet');
+      await runAction($('[type="submit"]', form), 'save',
+        { table: 'studentStatuses', id: 0, data: { student_id: form.elements.student_id.value, status, note } }, () => closeSheet(sheet));
+    },
+  };
+
   function openUpload(button) {
     const sheet = openSheet('sheet-upload');
     if (!sheet) return;
@@ -856,15 +975,15 @@
     form.elements.owner_type.value = button.dataset.ownerType;
     form.elements.owner_id.value = button.dataset.ownerId;
     $('[data-upload-title]', form).textContent = button.dataset.title || '';
-    $('[data-upload-preview]', form).innerHTML = '';
+    Picker.reset(form);
     $('[data-form-error]', form).hidden = true;
   }
 
   async function submitUpload(form) {
-    const input = form.querySelector('[data-image-input]');
+    const picked = Picker.files(form);
     const errorEl = $('[data-form-error]', form);
-    if (!input.files.length) { errorEl.textContent = 'กรุณาเลือกรูปภาพอย่างน้อย 1 รูป'; errorEl.hidden = false; return; }
-    const files = await prepareImages(input.files, errorEl);
+    if (!picked.length) { errorEl.textContent = 'กรุณาถ่ายภาพหรือเลือกรูปภาพอย่างน้อย 1 รูป'; errorEl.hidden = false; return; }
+    const files = await prepareImages(picked, errorEl);
     if (!files) return;
     errorEl.hidden = true;
     await runAction(form.querySelector('[type="submit"]'), 'upload_images',
@@ -908,9 +1027,13 @@
     print: () => window.print(),
     'open-camera': (b) => { const s = openSheet('sheet-camera'); if (s) $('.sheet__title', s).textContent = b.dataset.name; },
     'upload-open': openUpload,
+    'image-remove': (b) => Picker.remove(b),
+    'student-status-open': (b) => StudentStatus.open(b),
     'media-open': openMedia,
     'cleanup-media': cleanupMedia,
-    'pickup-open': (b) => Pickup.open(b),
+    'pickup-go': (b) => Pickup.go(b),
+    'notification-open': (b) => Notifications.open(b),
+    'notification-read-all': (b) => Notifications.readAll(b),
     'pickup-update': (b) => Pickup.update(b),
     'cctv-open': openViewer,
     'cctv-close': closeViewer,
@@ -945,6 +1068,8 @@
   });
 
   document.addEventListener('input', (event) => {
+    const statusForm = event.target.closest('[data-student-status-form]');
+    if (statusForm) { $('[data-form-error]', statusForm).hidden = true; return; }
     const search = event.target.closest('[data-filter-search]');
     if (!search) return;
     const target = search.closest('[data-filter-bar]').dataset.filterBar;
@@ -954,6 +1079,7 @@
 
   document.addEventListener('change', (event) => {
     if (event.target.matches('[data-image-input]')) { previewImages(event.target); return; }
+    if (event.target.matches('[data-image-source]')) { Picker.add(event.target); return; }
     const select = event.target.closest('[data-intake-id]');
     if (!select) return;
     runAction(select, 'save_intake', { id: Number(select.dataset.intakeId), meal: select.dataset.meal, level: select.value });
@@ -965,7 +1091,7 @@
     else if (form.matches('[data-meal-form]')) { event.preventDefault(); saveMeal(form); }
     else if (form.matches('[data-chat-form]')) { event.preventDefault(); sendMessage(form); }
     else if (form.matches('[data-upload-form]')) { event.preventDefault(); submitUpload(form); }
-    else if (form.matches('[data-pickup-form]')) { event.preventDefault(); Pickup.create(form); }
+    else if (form.matches('[data-student-status-form]')) { event.preventDefault(); StudentStatus.save(form); }
   });
 
   document.addEventListener('keydown', (event) => {

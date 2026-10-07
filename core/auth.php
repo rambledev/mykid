@@ -89,6 +89,17 @@ function current_user(): ?array
         'teacher_id'   => $account['teacher_id'] ?? null,
         'meta'         => role_meta($account['role']),
     ];
+    // Parent ↔ children (parentStudents). Generic pages keep using the first child (student_id);
+    // multi-child screens (รับ-ส่ง, ผลงานของฉัน) check this list explicitly.
+    $user['student_ids'] = [];
+    if ($account['role'] === 'parent') {
+        foreach (store_rows('parentStudents') as $link) {
+            if ($link['user_id'] === $account['id']) {
+                $user['student_ids'][] = $link['student_id'];
+            }
+        }
+        $user['student_ids'] = $user['student_ids'] ?: array_filter([$account['student_id']]);
+    }
     $user['school'] = $user['school_id'] ? find_row('schools', $user['school_id']) : null;
     $user['child'] = $user['student_id'] ? find_row('students', $user['student_id']) : null;
     if ($user['child']) {
@@ -108,6 +119,11 @@ function current_user(): ?array
         'teacher'     => [$user['classroom']['name'] . (pkg()['multiSchool'] ? ' · ' . $schoolName : ''), 'เฉพาะห้องนี้'],
         'parent'      => [$user['child']['nickname'] . ' · ' . $user['classroom']['name'] . (pkg()['multiSchool'] ? ' · ' . $schoolName : ''), 'เฉพาะ' . $user['child']['nickname']],
     };
+    if ($user['role'] === 'parent' && count($user['student_ids']) > 1) { // several children (parentStudents)
+        $names = array_map(fn ($id) => find_row('students', $id)['nickname'] ?? '', $user['student_ids']);
+        $user['scopeLabel'] = implode(', ', $names) . (pkg()['multiSchool'] ? ' · ' . $schoolName : '');
+        $user['lockLabel'] = 'เฉพาะลูกของฉัน ' . count($names) . ' คน';
+    }
 
     return $cache = $user;
 }

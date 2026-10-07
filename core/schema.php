@@ -94,6 +94,12 @@ function mk_tables(): array
             'note'        => ['label' => 'หมายเหตุครู', 'type' => 'text', 'max' => 120],
         ]],
         'foodIntake'  => ['label' => 'การรับประทานอาหาร', 'level' => 'student', 'fields' => []],
+        // Per-child status typed by the teacher (e.g. "เด็กป่วย" + symptoms). Every save is a new row (history).
+        'studentStatuses' => ['label' => 'สถานะรายบุคคล', 'level' => 'student', 'fields' => [
+            'student_id' => ['label' => 'นักเรียน', 'type' => 'student', 'required' => true],
+            'status'     => ['label' => 'สถานะ', 'type' => 'text', 'required' => true, 'max' => 60],
+            'note'       => ['label' => 'หมายเหตุ', 'type' => 'textarea', 'max' => 200],
+        ]],
         'stars' => ['label' => 'ดาว', 'level' => 'student', 'fields' => [
             'student_id' => ['label' => 'นักเรียน', 'type' => 'student', 'required' => true],
             'points'     => ['label' => 'จำนวนดาว', 'type' => 'number', 'min' => 1, 'max' => 10, 'required' => true],
@@ -112,7 +118,8 @@ function mk_tables(): array
             'student_id' => ['label' => 'นักเรียน', 'type' => 'student', 'required' => true],
             'title'      => ['label' => 'ชื่อผลงาน', 'type' => 'text', 'required' => true, 'max' => 80],
             'category'   => ['label' => 'หมวด', 'type' => 'select', 'options' => 'portfolioCategories'],
-            'comment'    => ['label' => 'รายละเอียด / หมายเหตุ', 'type' => 'textarea', 'max' => 200],
+            'date'       => ['label' => 'วันที่ทำผลงาน', 'type' => 'date'],
+            'comment'    => ['label' => 'รายละเอียด / คำอธิบาย', 'type' => 'textarea', 'max' => 200],
             'images'     => ['label' => 'รูปผลงาน', 'type' => 'image'], // uploaded files, not a column
         ]],
         'photos' => ['label' => 'ภาพกิจกรรม', 'level' => 'classroom', 'fields' => [
@@ -140,6 +147,10 @@ function mk_tables(): array
         // Row: student scope + status, parent_id/parent_name, eta_minutes, requested_at, eta_at,
         //      preparing_at, waiting_at, completed_at, completed_by, completed_by_name.
         'pickups' => ['label' => 'รับ-ส่ง', 'level' => 'student', 'fields' => []],
+        // Parent ↔ student relation (a parent may have several children). Written by the seed only.
+        'parentStudents' => ['label' => 'ผู้ปกครอง-นักเรียน', 'level' => 'school', 'fields' => []],
+        // In-app notifications, one row per recipient user (core/notifications.php only — never the generic API).
+        'userNotifications' => ['label' => 'แจ้งเตือน', 'level' => 'school', 'fields' => []],
         'cameras' => ['label' => 'กล้องวงจรปิด', 'level' => 'camera', 'fields' => [
             'school_id'     => ['label' => 'โรงเรียน', 'type' => 'school'], // super admin picks; others forced from session
             'name'          => ['label' => 'ชื่อกล้อง', 'type' => 'text', 'required' => true, 'max' => 60, 'placeholder' => 'เช่น กล้องหน้าห้องอนุบาล 1'],

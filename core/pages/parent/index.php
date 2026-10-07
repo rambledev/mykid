@@ -25,6 +25,10 @@ mk_header(['id' => 'parent-home', 'title' => 'หน้าหลักผู้�
         <?php render_status_card(classroom_status($cid), $room, 'ตอนนี้' . $child['nickname'] . 'กำลัง...', false); ?>
     </section>
 
+    <?php if (has_feature('studentStatus')): ?>
+        <?php render_student_status_card(today_student_statuses()[$child['id']] ?? null, $child['nickname']); ?>
+    <?php endif; ?>
+
     <section class="card">
         <?php if ($full): ?><p class="question">❓ วันนี้มีกิจกรรมอะไร?</p><?php endif; ?>
         <?php section_head('🏫', 'วันนี้ที่โรงเรียน', '<a class="btn btn--soft btn--sm" href="' . ($full ? 'timeline.php' : 'activities.php') . '">ดูทั้งหมด</a>'); ?>

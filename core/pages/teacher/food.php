@@ -11,7 +11,7 @@ page_title('🍱', 'เมนูอาหารวันนี้', thai_date() 
 <p class="hint hint--card">🔒 เมนูนี้เป็นของห้อง<?= e($user['classroom']['name']) ?> เท่านั้น กด “แก้ไข” ที่มื้อที่ต้องการ แล้วกด “บันทึก”</p>
 
 <section data-live id="live-food">
-    <?php render_food_cards(classroom_food($cid), $cid); ?>
+    <?php render_food_cards(classroom_food($cid), $cid, null, classroom_menu_row($cid)); ?>
     <?php if (has_feature('media')): ?>
         <div class="card"><?php render_food_photos(classroom_menu_row($cid), 'อาหารวันนี้ ห้อง' . $user['classroom']['name']); ?></div>
     <?php endif; ?>

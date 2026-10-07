@@ -9,7 +9,7 @@ mk_header(['id' => 'parent-food', 'title' => 'อาหารวันนี้'
 page_title('🍽️', 'อาหารวันนี้', 'เมนูที่' . $child['nickname'] . 'ได้ทานวันนี้');
 ?>
 <section data-live id="live-food">
-    <?php render_food_cards(classroom_food($child['classroom_id']), null, has_feature('foodIntake') ? student_today('foodIntake', $child['id']) : null); ?>
+    <?php render_food_cards(classroom_food($child['classroom_id']), null, has_feature('foodIntake') ? student_today('foodIntake', $child['id']) : null, classroom_menu_row($child['classroom_id'])); ?>
     <?php if (has_feature('media')): ?>
         <div class="card"><?php render_food_photos(classroom_menu_row($child['classroom_id']), 'อาหารวันนี้'); ?></div>
     <?php endif; ?>

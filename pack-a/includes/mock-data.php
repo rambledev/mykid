@@ -54,6 +54,11 @@ function pkg_seed(): array
     $id = 10;
     array_push($users, ...seed_users_from_package_c($id)); // 3 teachers + 6 parents (Package C accounts)
 
+    // A parent with TWO children in different classrooms (multi-child demo: รับ-ส่ง, ผลงานของฉัน)
+    $id = 25;
+    $users[] = ['id' => $id++, 'name' => 'คุณแม่ของน้องน้ำใสและน้องไผ่', 'phone' => '0898765440', 'pin' => '123456', 'role' => 'parent',
+        'school_id' => 1, 'classroom_id' => 1, 'student_id' => 16, 'teacher_id' => null, 'relation' => 'แม่', 'children' => [16, 33]];
+
     // School 2 — บ้านโพนสูง 2
     $id = 30;
     $users[] = $staff('คุณแอดมินโพนสูง 2', '0920000002', 'admin', 2);
